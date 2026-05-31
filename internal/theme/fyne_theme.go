@@ -46,7 +46,8 @@ func (f *fyneTheme) mapColor(name fyne.ThemeColorName) (color.Color, bool) {
 		return f.palette.Border, true
 	case fynetheme.ColorNamePrimary:
 		return f.palette.Accent, true
-	case fynetheme.ColorNameHover, fynetheme.ColorNameSelection:
+	case fynetheme.ColorNameHover, fynetheme.ColorNameSelection,
+		fynetheme.ColorNameFocus, fynetheme.ColorNamePressed:
 		return f.palette.Overlay, true
 	case fynetheme.ColorNameMenuBackground, fynetheme.ColorNameOverlayBackground:
 		return f.palette.Surface, true

@@ -18,8 +18,12 @@ import (
 // takes the remainder.
 const splitOffset = 0.28
 
-// projectMenuWidth is the width of the project picker popup.
-const projectMenuWidth float32 = 360
+// Popup sizing for the project and option (theme/font) pickers.
+const (
+	projectMenuWidth   float32 = 360
+	pickerWidth        float32 = 220
+	pickerVisibleItems         = 5
+)
 
 // Content is the top-level diff browser: a toolbar (hamburger menu + file filter
 // + theme and font selectors) over a horizontal split of the file list and the
@@ -34,6 +38,8 @@ type Content struct {
 	statusBar     *statusBar
 	projectButton *widget.Button
 	menuButton    *widget.Button
+	themeButton   *widget.Button
+	fontButton    *widget.Button
 	active        *theme.Theme
 	activeFont    string
 	current       *diff.File
@@ -58,6 +64,8 @@ func NewContent(
 		statusBar:     newStatusBar(),
 		projectButton: nil,
 		menuButton:    nil,
+		themeButton:   nil,
+		fontButton:    nil,
 		active:        themes.Default(),
 		activeFont:    fonts.DefaultName(),
 		current:       nil,
@@ -94,14 +102,15 @@ func (c *Content) assemble() fyne.CanvasObject {
 	filter.SetPlaceHolder("Filter files…")
 	filter.OnChanged = c.fileList.SetFilter
 
-	themeSelect := widget.NewSelect(c.themes.Names(), c.SetTheme)
-	themeSelect.SetSelected(c.active.Name())
-
-	fontSelect := widget.NewSelect(c.fonts.Names(), c.SetFont)
-	fontSelect.SetSelected(c.activeFont)
+	c.themeButton = widget.NewButton(c.active.Name(), func() {
+		c.showOptionsMenu(c.themeButton, c.themes.Names(), c.active.Name(), c.SetTheme)
+	})
+	c.fontButton = widget.NewButton(c.activeFont, func() {
+		c.showOptionsMenu(c.fontButton, c.fonts.Names(), c.activeFont, c.SetFont)
+	})
 
 	left := container.NewHBox(c.projectButton, c.menuButton)
-	selectors := container.NewHBox(themeSelect, fontSelect)
+	selectors := container.NewHBox(c.themeButton, c.fontButton)
 	toolbar := container.NewBorder(nil, nil, left, selectors, filter)
 
 	split := container.NewHSplit(c.fileList, c.diffView)
@@ -135,11 +144,16 @@ func (c *Content) showProjectMenu() {
 	entry.OnSubmitted = open
 
 	items := []fyne.CanvasObject{entry}
-	for _, path := range c.recent {
+	for index, path := range c.recent {
 		recent := path
 		button := widget.NewButton(displayPath(recent), func() { open(recent) })
 		button.Alignment = widget.ButtonAlignLeading
-		button.Importance = widget.LowImportance
+		if index == 0 { // the most-recent entry is the currently open project
+			button.Icon = fynetheme.ConfirmIcon()
+			button.Importance = widget.HighImportance
+		} else {
+			button.Importance = widget.LowImportance
+		}
 		items = append(items, button)
 	}
 
@@ -148,6 +162,91 @@ func (c *Content) showProjectMenu() {
 	popUp.Resize(fyne.NewSize(projectMenuWidth, popUp.MinSize().Height))
 	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+c.projectButton.Size().Height))
 	canvas.Focus(entry)
+}
+
+// showOptionsMenu pops up a scrollable list of options beneath anchor. The
+// active option is checked and highlighted; choosing one invokes onPick and
+// dismisses the popup.
+func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, active string, onPick func(string)) {
+	canvas := fyne.CurrentApp().Driver().CanvasForObject(anchor)
+	if canvas == nil {
+		return
+	}
+
+	var popUp *widget.PopUp
+	activeIndex := -1
+	items := make([]fyne.CanvasObject, 0, len(options))
+	for index, option := range options {
+		choice := option
+		button := widget.NewButton(choice, func() {
+			popUp.Hide()
+			onPick(choice)
+		})
+		button.Alignment = widget.ButtonAlignLeading
+		if choice == active {
+			activeIndex = index
+			button.Icon = fynetheme.ConfirmIcon()
+			button.Importance = widget.HighImportance
+		} else {
+			button.Importance = widget.LowImportance
+		}
+		items = append(items, button)
+	}
+
+	box := container.NewVBox(items...)
+	full := box.MinSize().Height
+	viewport := full
+	if len(options) > pickerVisibleItems {
+		viewport = full * float32(pickerVisibleItems) / float32(len(options))
+	}
+
+	scroll := container.NewVScroll(box)
+	scroll.SetMinSize(fyne.NewSize(pickerWidth, viewport))
+
+	up := widget.NewIcon(fynetheme.MenuDropUpIcon())
+	down := widget.NewIcon(fynetheme.MenuDropDownIcon())
+	up.Hide()
+	down.Hide()
+	carets := container.NewBorder(container.NewCenter(up), container.NewCenter(down), nil, nil)
+
+	maxOffset := full - viewport
+	syncCarets := func(offset float32) {
+		setVisible(up, offset > 1)
+		setVisible(down, offset < maxOffset-1)
+	}
+	scroll.OnScrolled = func(pos fyne.Position) { syncCarets(pos.Y) }
+
+	popUp = widget.NewPopUp(container.NewStack(scroll, carets), canvas)
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
+	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+anchor.Size().Height))
+	scrollToActive(scroll, box, len(options), activeIndex, viewport)
+	syncCarets(scroll.Offset.Y)
+}
+
+// scrollToActive centers the active option in the picker's viewport so its
+// indicator is visible the moment the menu opens.
+func scrollToActive(scroll *container.Scroll, box fyne.CanvasObject, count, active int, viewport float32) {
+	if active <= 0 || count <= 1 {
+		return
+	}
+
+	itemHeight := box.MinSize().Height / float32(count)
+	offset := float32(active)*itemHeight - viewport/2 + itemHeight/2
+	if offset < 0 {
+		offset = 0
+	}
+
+	scroll.Offset = fyne.NewPos(0, offset)
+	scroll.Refresh()
+}
+
+// setVisible shows or hides a canvas object.
+func setVisible(obj fyne.CanvasObject, visible bool) {
+	if visible {
+		obj.Show()
+	} else {
+		obj.Hide()
+	}
 }
 
 // OnOpenProject registers a listener invoked when the user opens a project,
@@ -236,6 +335,9 @@ func (c *Content) SetTheme(name string) {
 	}
 
 	c.active = thm
+	if c.themeButton != nil {
+		c.themeButton.SetText(name)
+	}
 	c.restyle()
 }
 
@@ -247,6 +349,9 @@ func (c *Content) SetFont(name string) {
 	}
 
 	c.activeFont = name
+	if c.fontButton != nil {
+		c.fontButton.SetText(name)
+	}
 	c.restyle()
 }
 
