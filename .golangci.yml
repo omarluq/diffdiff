@@ -66,6 +66,14 @@ linters:
         path: ".*_generated\\.go$"
       - linters: [lll]
         source: "^//go:generate "
+      # Test fixtures legitimately build structs partially.
+      - linters: [exhaustruct]
+        path: "_test\\.go$"
+      # GUI code (Fyne widgets) uses ExtendBaseWidget partial literals and has
+      # inherently long, branch-heavy layout/render functions. Relax struct and
+      # complexity linters there; correctness linters stay enabled.
+      - linters: [exhaustruct, funlen, gocognit, gocyclo, cyclop, dupl, varnamelen]
+        path: "internal/ui/"
 
   settings:
     errcheck:
@@ -74,6 +82,43 @@ linters:
 
     govet:
       enable-all: true
+      # fieldalignment forces memory-optimal (non-semantic) field ordering. Our
+      # model structs are small and not allocated in hot loops; readable,
+      # logically grouped fields win over a few saved bytes.
+      disable:
+        - fieldalignment
+
+    varnamelen:
+      # Keep varnamelen active for genuinely cryptic names, but permit the short
+      # identifiers idiomatic Go relies on (loop indices, receivers, common
+      # locals) instead of forcing verbose renames.
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-names:
+        - i
+        - j
+        - k
+        - n
+        - e
+        - f
+        - h
+        - r
+        - t
+        - u
+        - v
+        - w
+        - c
+        - x
+        - y
+        - ok
+        - id
+        - db
+        - fs
+        - mu
+        - wt
+        - uh
+        - tt
 
     gocyclo:
       min-complexity: 10

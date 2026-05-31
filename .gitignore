@@ -62,3 +62,6 @@ Thumbs.db
 .windsurf/
 .zencoder/
 /skills/
+
+# Local tooling cache
+.claude/tsc-cache/
