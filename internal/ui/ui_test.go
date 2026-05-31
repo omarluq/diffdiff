@@ -144,7 +144,7 @@ func TestNewContentReturnsRootAndHandle(t *testing.T) {
 	reg := theme.NewRegistry()
 	hl := highlight.New(0)
 
-	root, content := ui.NewContent(reg, hl)
+	root, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
 	require.NotNil(t, root, "root canvas object must be constructed")
 	require.NotNil(t, content, "content handle must be constructed")
 	assert.Equal(t, reg.Default().Name(), content.ActiveTheme().Name(),
@@ -160,7 +160,7 @@ func TestContentSetThemeKnownAndUnknown(t *testing.T) {
 	reg := theme.NewRegistry()
 	hl := highlight.New(0)
 
-	_, content := ui.NewContent(reg, hl)
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
 	if _, ok := reg.Get("Dracula"); !ok {
 		t.Skip("Dracula theme not present in registry")
 	}
@@ -183,7 +183,7 @@ func TestContentSetFilesFeedsFileList(t *testing.T) {
 	reg := theme.NewRegistry()
 	hl := highlight.New(0)
 
-	_, content := ui.NewContent(reg, hl)
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
 	require.NotNil(t, content)
 	// SetFiles must not panic and must accept a nil-free slice.
 	content.SetFiles(sampleFiles())
