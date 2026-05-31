@@ -6,10 +6,10 @@ vars:
   BUILD_DIR: ./bin
   COVERAGE_FILE: coverage.out
   MAIN_PACKAGE: ./cmd/{{.BINARY_NAME}}
-  # Fyne backend build tags. `wayland` selects the native Wayland client
-  # (no X11/XWayland). Override with BUILD_TAGS="" to use the default GLFW/X11
-  # backend, e.g. on X11-only sessions: `task build BUILD_TAGS=`.
-  BUILD_TAGS: '{{.BUILD_TAGS | default "wayland"}}'
+  # Fyne build tags. `wayland` selects the native Wayland client (no
+  # X11/XWayland); `no_animations` disables Fyne's tap/popup animations so menus
+  # open instantly. Override e.g. on X11-only sessions: `task build BUILD_TAGS=`.
+  BUILD_TAGS: '{{.BUILD_TAGS | default "wayland no_animations"}}'
 
 env:
   GOCACHE: '{{.ROOT_DIR}}/.gocache'
