@@ -18,24 +18,29 @@ const glyphGap = 1
 
 // fileRow is one row in the FileList: a status glyph, +adds/-dels counts, and
 // the path with basename and fuzzy matches emphasized. It is a recycled list
-// item; set swaps in new content without reallocating the widget.
+// item; set swaps in new content without reallocating the widget. When
+// basenameOnly is set (as a leaf of the nested tree view) only the file's base
+// name is drawn, since the directory is already conveyed by the tree hierarchy.
 type fileRow struct {
 	widget.BaseWidget
 
-	palette palette
-	entry   fileEntry
-	hasData bool
-	advance float32
+	palette      palette
+	entry        fileEntry
+	hasData      bool
+	advance      float32
+	basenameOnly bool
 }
 
-// newFileRow builds an empty row for the given palette.
-func newFileRow(pal palette) *fileRow {
+// newFileRow builds an empty row for the given palette. basenameOnly renders
+// just the file's base name (for nested-tree leaves) rather than the full path.
+func newFileRow(pal palette, basenameOnly bool) *fileRow {
 	row := &fileRow{
-		BaseWidget: widget.BaseWidget{},
-		palette:    pal,
-		entry:      fileEntry{file: nil, matched: nil},
-		hasData:    false,
-		advance:    measureAdvance(fileRowTextSize),
+		BaseWidget:   widget.BaseWidget{},
+		palette:      pal,
+		entry:        fileEntry{file: nil, matched: nil},
+		hasData:      false,
+		advance:      measureAdvance(fileRowTextSize),
+		basenameOnly: basenameOnly,
 	}
 	row.ExtendBaseWidget(row)
 

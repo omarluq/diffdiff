@@ -75,9 +75,25 @@ func (f *fyneTheme) Font(style fyne.TextStyle) fyne.Resource {
 	return fynetheme.DefaultTheme().Font(style)
 }
 
-// Icon delegates to the default theme's icon for the given name.
+// blankIcon is an empty SVG used to hide the file tree's disclosure caret: the
+// nested view conveys open/closed through its folder icon and toggles on a row
+// tap, so Fyne's default arrow is redundant. Rendering nothing (rather than
+// shrinking the slot) keeps the caret's reserved width, so branch and leaf
+// content stay aligned.
+var blankIcon = fyne.NewStaticResource(
+	"diffdiff-blank.svg",
+	[]byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"></svg>`),
+)
+
+// Icon hides the tree's open/closed disclosure carets (MoveDown/NavigateNext)
+// and delegates every other icon to the default theme.
 func (f *fyneTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	return fynetheme.DefaultTheme().Icon(name)
+	switch name {
+	case fynetheme.IconNameMoveDown, fynetheme.IconNameNavigateNext:
+		return blankIcon
+	default:
+		return fynetheme.DefaultTheme().Icon(name)
+	}
 }
 
 // Size delegates to the default theme's size for the given name.

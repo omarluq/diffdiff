@@ -249,6 +249,42 @@ func TestContentSplitToggleSwitchesLayout(t *testing.T) {
 	assert.False(t, content.SplitToggle(), "second toggle restores the unified layout")
 }
 
+func TestTreeModelGroupsByDirectory(t *testing.T) {
+	t.Parallel()
+
+	files := []*diff.File{
+		modifiedFile("internal/server/handler.go", 1, 0),
+		modifiedFile("internal/server/router.go", 1, 0),
+		modifiedFile("main.go", 1, 0),
+	}
+
+	// Root: directories sort before files, so "internal" precedes "main.go".
+	assert.Equal(t, []string{"internal", "main.go"}, ui.TreeChildPaths(files, ""))
+	// Nested directories carry their full path as the UID.
+	assert.Equal(t, []string{"internal/server"}, ui.TreeChildPaths(files, "internal"))
+	assert.Equal(t,
+		[]string{"internal/server/handler.go", "internal/server/router.go"},
+		ui.TreeChildPaths(files, "internal/server"),
+		"leaves sort by name within their directory",
+	)
+}
+
+func TestContentTreeToggleSwitchesView(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	reg := theme.NewRegistry()
+	hl := highlight.New(0)
+
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
+	content.SetFiles(sampleFiles())
+
+	assert.True(t, content.TreeToggle(), "first toggle enables the nested tree")
+	assert.False(t, content.TreeToggle(), "second toggle restores the flat list")
+}
+
 func TestFlattenProducesSeparatorPerHunkPlusLines(t *testing.T) {
 	t.Parallel()
 

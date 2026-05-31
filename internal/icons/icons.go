@@ -99,6 +99,16 @@ func For(path string) fyne.Resource {
 	return resource(iconName(path))
 }
 
+// Folder returns the Material folder icon for a directory, choosing the open or
+// closed variant. Like For, it never returns nil and is safe for concurrent use.
+func Folder(open bool) fyne.Resource {
+	if open {
+		return resource("folder-open")
+	}
+
+	return resource("folder")
+}
+
 // iconName resolves a path to an icon name, preferring a whole-filename match
 // over the extension.
 func iconName(path string) string {

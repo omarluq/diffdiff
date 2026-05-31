@@ -97,6 +97,14 @@ func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, star
 	r.segments = r.segments[:0]
 	dirLen := strings.LastIndexByte(filePath, '/') + 1
 
+	// In basename-only mode (a nested-tree leaf) render just the base name;
+	// offsetBase keeps fuzzy-match lookups aligned to the full-path offsets the
+	// matcher recorded.
+	render, offsetBase := filePath, 0
+	if r.row.basenameOnly {
+		render, offsetBase = filePath[dirLen:], dirLen
+	}
+
 	var (
 		buf      strings.Builder
 		runColor color.NRGBA
@@ -116,9 +124,10 @@ func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, star
 		buf.Reset()
 	}
 
-	for byteOffset, rch := range filePath {
-		emphasized := r.row.entry.matched[byteOffset]
-		c := runeColor(pal, byteOffset >= dirLen, emphasized)
+	for byteOffset, rch := range render {
+		full := offsetBase + byteOffset
+		emphasized := r.row.entry.matched[full]
+		c := runeColor(pal, full >= dirLen, emphasized)
 		if !haveRun || c != runColor || emphasized != runBold {
 			flush()
 			runColor, runBold, runStart, haveRun = c, emphasized, col, true
