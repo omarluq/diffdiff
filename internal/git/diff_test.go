@@ -156,6 +156,20 @@ func TestWorkingDiffRespectsGlobalIgnore(t *testing.T) {
 	assert.True(t, found, "globally-ignored file must appear when showIgnored is true")
 }
 
+func TestDetails(t *testing.T) {
+	t.Parallel()
+
+	dir := initRepo(t, "a.txt", "hi\n")
+
+	repo, err := ourgit.Open(dir)
+	require.NoError(t, err)
+
+	details := repo.Details()
+	assert.NotEmpty(t, details.Branch, "a committed repo reports its branch")
+	assert.Len(t, details.Head, 7, "head is a short hash")
+	assert.Equal(t, "init", details.Subject)
+}
+
 func TestWorkingDiffClean(t *testing.T) {
 	t.Parallel()
 
