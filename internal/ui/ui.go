@@ -29,6 +29,7 @@ type palette struct {
 	foreground color.NRGBA
 	muted      color.NRGBA
 	accent     color.NRGBA
+	border     color.NRGBA
 	addBg      color.NRGBA
 	addEmph    color.NRGBA
 	delBg      color.NRGBA
@@ -44,6 +45,7 @@ func paletteFrom(src *theme.Palette) palette {
 		foreground: src.Foreground,
 		muted:      src.Muted,
 		accent:     src.Accent,
+		border:     src.Border,
 		addBg:      src.AddBg,
 		addEmph:    src.AddEmph,
 		delBg:      src.DelBg,

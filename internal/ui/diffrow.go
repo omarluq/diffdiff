@@ -18,13 +18,26 @@ type rowKind uint8
 const (
 	rowLine rowKind = iota
 	rowSeparator
+	rowSplit
 )
 
+// splitCell is one side (old or new) of a split-view row. present is false when
+// the line has no counterpart on this side (rendered as a blank cell). tokens is
+// filled asynchronously after highlighting; hlIndex records the cell's position
+// within the reconstructed old/new body so the async result can be indexed.
+type splitCell struct {
+	present bool
+	line    diff.Line
+	tokens  []highlight.Token
+	hlIndex int
+}
+
 // row is one entry in the flattened diff. Separator rows carry only header
-// text; line rows reference a diff.Line plus its cached highlighted tokens for
-// the appropriate side. tokens is filled in asynchronously after highlighting;
-// hlIndex/hlOld records which reconstructed-file line this row maps to so the
-// async result can be indexed without re-deriving line offsets.
+// text. Unified line rows reference a diff.Line plus its cached highlighted
+// tokens for the appropriate side (tokens/hlIndex/hlOld). Split rows pair an old
+// cell (left) with a new cell (right). tokens is filled in asynchronously after
+// highlighting; hlIndex/hlOld records which reconstructed-file line this row maps
+// to so the async result can be indexed without re-deriving line offsets.
 type row struct {
 	kind    rowKind
 	header  string
@@ -32,6 +45,8 @@ type row struct {
 	tokens  []highlight.Token
 	hlIndex int
 	hlOld   bool
+	left    splitCell
+	right   splitCell
 	gutterW float32
 }
 
@@ -102,12 +117,16 @@ func (dr *diffRow) CreateRenderer() fyne.WidgetRenderer {
 	rend := &diffRowRenderer{
 		row:        dr,
 		background: canvas.NewRectangle(color.Transparent),
+		leftBg:     canvas.NewRectangle(color.Transparent),
+		rightBg:    canvas.NewRectangle(color.Transparent),
+		divider:    canvas.NewRectangle(color.Transparent),
 		oldNum:     dr.newText("", dr.palette.muted, fyne.TextAlignTrailing),
 		newNum:     dr.newText("", dr.palette.muted, fyne.TextAlignTrailing),
 		sign:       dr.newText("", dr.palette.muted, fyne.TextAlignCenter),
 		header:     dr.newText("", dr.palette.muted, fyne.TextAlignLeading),
 		emphasis:   nil,
 		texts:      nil,
+		width:      0,
 	}
 
 	return rend
@@ -125,19 +144,26 @@ func (dr *diffRow) newText(content string, col color.Color, align fyne.TextAlign
 	return txt
 }
 
-// diffRowRenderer lays out one diff row. background spans the full width;
-// emphasis holds intra-line change rectangles; texts holds the syntax-colored
-// runs. Gutter/sign texts are reused; emphasis and texts are rebuilt per setRow
-// because their counts vary by line.
+// diffRowRenderer lays out one diff row. In unified mode background spans the
+// full width; in split mode leftBg/rightBg tint the two columns and divider
+// separates them. emphasis holds intra-line change rectangles; texts holds the
+// syntax-colored runs (both columns in split mode). Gutter/sign texts are
+// reused; emphasis and texts are rebuilt per refresh because their counts vary.
+// width caches the last laid-out width so a data-only Refresh can re-place the
+// width-dependent split columns without waiting for a resize.
 type diffRowRenderer struct {
 	row        *diffRow
 	background *canvas.Rectangle
+	leftBg     *canvas.Rectangle
+	rightBg    *canvas.Rectangle
+	divider    *canvas.Rectangle
 	oldNum     *canvas.Text
 	newNum     *canvas.Text
 	sign       *canvas.Text
 	header     *canvas.Text
 	emphasis   []*canvas.Rectangle
 	texts      []*canvas.Text
+	width      float32
 }
 
 // Destroy has no resources to release.
@@ -154,29 +180,44 @@ func (r *diffRowRenderer) Refresh() {
 	if !r.row.hasData {
 		return
 	}
-	if r.row.data.kind == rowSeparator {
+	switch r.row.data.kind {
+	case rowSeparator:
 		r.refreshSeparator()
-	} else {
+	case rowSplit:
+		r.buildSplit(r.width)
+	case rowLine:
+		r.refreshLine()
+	default:
 		r.refreshLine()
 	}
 	canvas.Refresh(r.row)
 }
 
-// Layout repositions cells when the row is resized; the background must stretch
-// to the new width so the change color fills the whole line.
+// Layout repositions cells when the row is resized. The unified background must
+// stretch to the new width so the change color fills the whole line; split rows
+// rebuild their two columns against the new width.
 func (r *diffRowRenderer) Layout(size fyne.Size) {
+	r.width = size.Width
 	r.background.Resize(fyne.NewSize(size.Width, r.row.metrics.height))
 	r.background.Move(fyne.NewPos(0, 0))
-	if r.row.hasData && r.row.data.kind == rowSeparator {
+	if !r.row.hasData {
+		return
+	}
+	switch r.row.data.kind {
+	case rowSeparator:
 		r.header.Resize(fyne.NewSize(size.Width-r.row.metrics.padding, r.row.metrics.height))
+	case rowSplit:
+		r.buildSplit(size.Width)
+	case rowLine:
 	}
 }
 
-// Objects returns every drawable in paint order: background, intra-line
-// emphasis, gutter/sign chrome, then the syntax text runs on top.
+// Objects returns every drawable in paint order: backgrounds (full-width unified
+// plus the two split columns and their divider), intra-line emphasis, gutter/sign
+// chrome, then the syntax text runs on top.
 func (r *diffRowRenderer) Objects() []fyne.CanvasObject {
-	objs := make([]fyne.CanvasObject, 0, 4+len(r.emphasis)+len(r.texts))
-	objs = append(objs, r.background)
+	objs := make([]fyne.CanvasObject, 0, 7+len(r.emphasis)+len(r.texts))
+	objs = append(objs, r.background, r.leftBg, r.rightBg, r.divider)
 	for _, emph := range r.emphasis {
 		objs = append(objs, emph)
 	}

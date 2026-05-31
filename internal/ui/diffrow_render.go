@@ -14,7 +14,9 @@ import (
 // refreshSeparator renders a hunk header (@@ ... @@) on the surface color and
 // hides the line-specific cells.
 func (r *diffRowRenderer) refreshSeparator() {
+	r.background.Show()
 	r.background.FillColor = r.row.palette.surface
+	r.hideSplit()
 	r.oldNum.Hide()
 	r.newNum.Hide()
 	r.sign.Hide()
@@ -32,10 +34,20 @@ func (r *diffRowRenderer) refreshSeparator() {
 func (r *diffRowRenderer) refreshLine() {
 	line := r.row.data.line
 	r.header.Hide()
+	r.background.Show()
+	r.hideSplit()
 	r.applyLineBackground(line.Kind)
 	r.layoutGutters(line)
 	r.buildEmphasis(line)
 	r.buildTexts(line)
+}
+
+// hideSplit hides the split-only column rectangles so a recycled row that was
+// last used for a split line draws cleanly as a unified line or separator.
+func (r *diffRowRenderer) hideSplit() {
+	r.leftBg.Hide()
+	r.rightBg.Hide()
+	r.divider.Hide()
 }
 
 // applyLineBackground tints the full-width background per line kind.
@@ -181,4 +193,167 @@ func emphasisColor(pal palette, kind diff.LineKind) color.NRGBA {
 	default:
 		return color.NRGBA{R: 0, G: 0, B: 0, A: 0}
 	}
+}
+
+// splitDividerWidth is the logical width of the rule between the two columns.
+const splitDividerWidth float32 = 1
+
+// buildSplit lays out a split row's two columns against the current width: a
+// tinted background, gutter, and (truncated) content for each of the old (left)
+// and new (right) cells, with a divider down the middle. It is width-dependent,
+// so it runs from both Layout (on resize) and Refresh (on data change, using the
+// cached width). Content beyond a column's width is clipped so a long line never
+// bleeds into the opposite column.
+func (r *diffRowRenderer) buildSplit(width float32) {
+	metrics := r.row.metrics
+	r.background.Hide()
+	r.sign.Hide()
+	r.header.Hide()
+	r.emphasis = r.emphasis[:0]
+	r.leftBg.Show()
+	r.rightBg.Show()
+	r.divider.Show()
+	r.oldNum.Show()
+	r.newNum.Show()
+
+	mid := width / 2
+	left := &r.row.data.left
+	right := &r.row.data.right
+
+	r.leftBg.FillColor = splitCellBg(r.row.palette, left)
+	r.leftBg.Move(fyne.NewPos(0, 0))
+	r.leftBg.Resize(fyne.NewSize(mid, metrics.height))
+	r.rightBg.FillColor = splitCellBg(r.row.palette, right)
+	r.rightBg.Move(fyne.NewPos(mid, 0))
+	r.rightBg.Resize(fyne.NewSize(width-mid, metrics.height))
+	r.divider.FillColor = r.row.palette.border
+	r.divider.Move(fyne.NewPos(mid, 0))
+	r.divider.Resize(fyne.NewSize(splitDividerWidth, metrics.height))
+
+	r.oldNum.Text = splitGutterLabel(left, true)
+	r.oldNum.Color = r.row.palette.muted
+	r.oldNum.Move(fyne.NewPos(metrics.padding, 0))
+	r.oldNum.Resize(fyne.NewSize(metrics.gutterW, metrics.height))
+	rightGutterX := mid + splitDividerWidth + metrics.padding
+	r.newNum.Text = splitGutterLabel(right, false)
+	r.newNum.Color = r.row.palette.muted
+	r.newNum.Move(fyne.NewPos(rightGutterX, 0))
+	r.newNum.Resize(fyne.NewSize(metrics.gutterW, metrics.height))
+
+	leftContentX := metrics.padding + metrics.gutterW + metrics.advance
+	rightContentX := rightGutterX + metrics.gutterW + metrics.advance
+
+	r.texts = r.texts[:0]
+	r.appendCellTexts(left, leftContentX, columnsFor(mid, leftContentX, metrics))
+	r.appendCellTexts(right, rightContentX, columnsFor(width, rightContentX, metrics))
+}
+
+// columnsFor reports how many monospace glyphs fit between contentX and the
+// column's right edge, leaving one padding gap before the edge.
+func columnsFor(edge, contentX float32, metrics rowMetrics) int {
+	avail := edge - metrics.padding - contentX
+	if avail <= 0 {
+		return 0
+	}
+
+	return int(avail / metrics.advance)
+}
+
+// splitCellBg tints a split cell by its line kind; an absent or context cell is
+// transparent so the view background shows through.
+func splitCellBg(pal palette, cell *splitCell) color.Color {
+	if !cell.present {
+		return color.Transparent
+	}
+	switch cell.line.Kind {
+	case diff.LineAdded:
+		return pal.addBg
+	case diff.LineDeleted:
+		return pal.delBg
+	case diff.LineContext:
+		return color.Transparent
+	default:
+		return color.Transparent
+	}
+}
+
+// splitGutterLabel renders the old (or new) line number for a split cell, blank
+// when the cell is absent.
+func splitGutterLabel(cell *splitCell, old bool) string {
+	if !cell.present {
+		return ""
+	}
+	if old {
+		return gutterLabel(cell.line.OldNum)
+	}
+
+	return gutterLabel(cell.line.NewNum)
+}
+
+// appendCellTexts lays out one split cell's content at contentX as syntax-colored
+// runs (or plain foreground text before highlighting), stopping at maxCols so the
+// run never crosses into the other column.
+func (r *diffRowRenderer) appendCellTexts(cell *splitCell, contentX float32, maxCols int) {
+	if !cell.present || maxCols <= 0 {
+		return
+	}
+	if len(cell.tokens) == 0 {
+		r.appendCellPlain(cell.line.Content, contentX, maxCols)
+
+		return
+	}
+
+	metrics := r.row.metrics
+	col := 0
+	for _, tok := range cell.tokens {
+		if col >= maxCols {
+			break
+		}
+		runes := utf8.RuneCountInString(tok.Text)
+		if runes == 0 {
+			continue
+		}
+		text := tok.Text
+		if col+runes > maxCols {
+			text = firstRunes(tok.Text, maxCols-col)
+		}
+		txt := r.row.newText(text, tok.Color, fyne.TextAlignLeading)
+		txt.TextStyle.Bold = tok.Bold
+		txt.TextStyle.Italic = tok.Italic
+		txt.Move(fyne.NewPos(contentX+float32(col)*metrics.advance, 0))
+		r.texts = append(r.texts, txt)
+		col += runes
+	}
+}
+
+// appendCellPlain renders a split cell's content as a single foreground run,
+// clipped to maxCols, used before highlight tokens arrive.
+func (r *diffRowRenderer) appendCellPlain(content string, contentX float32, maxCols int) {
+	if content == "" {
+		return
+	}
+	text := content
+	if utf8.RuneCountInString(content) > maxCols {
+		text = firstRunes(content, maxCols)
+	}
+	txt := r.row.newText(text, r.row.palette.foreground, fyne.TextAlignLeading)
+	txt.Move(fyne.NewPos(contentX, 0))
+	r.texts = append(r.texts, txt)
+}
+
+// firstRunes returns the first n runes of s (the whole string when it is
+// shorter), used to clip overflowing split-column content.
+func firstRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	count := 0
+	for index := range s {
+		if count == n {
+			return s[:index]
+		}
+		count++
+	}
+
+	return s
 }

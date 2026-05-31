@@ -189,6 +189,66 @@ func TestContentSetFilesFeedsFileList(t *testing.T) {
 	content.SetFiles(sampleFiles())
 }
 
+func TestSplitFlattenPairsAndBlanks(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	file := &diff.File{
+		Path:     "pkg/file.go",
+		OldPath:  "",
+		Status:   diff.StatusModified,
+		Language: "",
+		Binary:   false,
+		Hunks: []diff.Hunk{
+			{
+				OldStart: 1, OldLines: 2, NewStart: 1, NewLines: 2, Section: "func A()",
+				Lines: []diff.Line{
+					{Kind: diff.LineContext, OldNum: 1, NewNum: 1, Content: "a", Segments: nil},
+					{Kind: diff.LineDeleted, OldNum: 2, NewNum: 0, Content: "old", Segments: nil},
+					{Kind: diff.LineAdded, OldNum: 0, NewNum: 2, Content: "new", Segments: nil},
+				},
+			},
+			{
+				OldStart: 10, OldLines: 1, NewStart: 10, NewLines: 2, Section: "",
+				Lines: []diff.Line{
+					{Kind: diff.LineContext, OldNum: 10, NewNum: 10, Content: "z", Segments: nil},
+					{Kind: diff.LineAdded, OldNum: 0, NewNum: 11, Content: "w", Segments: nil},
+				},
+			},
+		},
+		Added:   2,
+		Deleted: 1,
+	}
+
+	shapes := ui.SplitRowShapes(file)
+
+	// Each hunk opens with a separator. A modified line pairs old-left with
+	// new-right ("LR"); a pure addition leaves the old column blank ("-R").
+	assert.Equal(t,
+		[]string{"sep", "LR", "LR", "sep", "LR", "-R"},
+		shapes,
+		"context pairs both columns, a modify pairs del/add, an add blanks the left",
+	)
+}
+
+func TestContentSplitToggleSwitchesLayout(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	reg := theme.NewRegistry()
+	hl := highlight.New(0)
+
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
+	content.SetFiles(sampleFiles())
+
+	assert.True(t, content.SplitToggle(), "first toggle enables the split layout")
+	assert.False(t, content.SplitToggle(), "second toggle restores the unified layout")
+}
+
 func TestFlattenProducesSeparatorPerHunkPlusLines(t *testing.T) {
 	t.Parallel()
 

@@ -38,6 +38,12 @@ type DiffView struct {
 	binary *canvas.Text
 	holder *fyne.Container
 
+	// split selects side-by-side layout over the unified (stacked) layout. file
+	// and thm retain the current input so a layout toggle can re-flatten in place.
+	split bool
+	file  *diff.File
+	thm   *theme.Theme
+
 	// generation guards against a stale highlight result from a previous file
 	// landing after the user has already switched files.
 	generation uint64
@@ -54,6 +60,9 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 		list:        nil,
 		binary:      nil,
 		holder:      nil,
+		split:       false,
+		file:        nil,
+		thm:         nil,
 		generation:  0,
 	}
 	view.ExtendBaseWidget(view)
@@ -94,6 +103,8 @@ func (v *DiffView) CreateRenderer() fyne.WidgetRenderer {
 // highlighting. A nil file clears the view.
 func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 	v.generation++
+	v.file = file
+	v.thm = thm
 	pal := thm.Palette()
 	v.palette = paletteFrom(&pal)
 	v.metrics = computeMetrics(diffTextSize)
@@ -110,8 +121,35 @@ func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 		return
 	}
 
-	v.showRows(flatten(file, v.metrics))
+	v.showRows(v.flattenFile(file))
 	v.startHighlight(file, thm, v.generation)
+}
+
+// SetSplit selects the split (side-by-side) or unified (stacked) layout. It
+// re-flattens the current file in place when the mode actually changes so the
+// toggle takes effect without a reselection.
+func (v *DiffView) SetSplit(split bool) {
+	if v.split == split {
+		return
+	}
+	v.split = split
+	if v.file != nil && v.thm != nil {
+		v.SetFile(v.file, v.thm)
+	}
+}
+
+// Split reports whether the side-by-side layout is active.
+func (v *DiffView) Split() bool {
+	return v.split
+}
+
+// flattenFile builds the row model for the active layout.
+func (v *DiffView) flattenFile(file *diff.File) []row {
+	if v.split {
+		return flattenSplit(file, v.metrics)
+	}
+
+	return flatten(file, v.metrics)
 }
 
 // showRows swaps in a new row model and refreshes the list, hiding the binary
@@ -197,6 +235,67 @@ func hunkHeader(hunk *diff.Hunk) string {
 	}
 
 	return marker + " " + hunk.Section
+}
+
+// flattenSplit turns a file into side-by-side rows: a separator row per hunk
+// followed by paired old/new line rows from diff.SplitRows. Each cell records
+// its index within the reconstructed old/new body so async highlight tokens can
+// be attached by position, mirroring the unified flatten.
+func flattenSplit(file *diff.File, metrics rowMetrics) []row {
+	splits := diff.SplitRows(file)
+	rows := make([]row, 0, len(splits))
+	for si := range splits {
+		split := &splits[si]
+		if split.Separator {
+			rows = append(rows, row{
+				kind:    rowSeparator,
+				header:  splitHunkHeader(split),
+				line:    diff.Line{},
+				tokens:  nil,
+				hlIndex: 0,
+				hlOld:   false,
+				left:    splitCell{present: false, line: diff.Line{}, tokens: nil, hlIndex: -1},
+				right:   splitCell{present: false, line: diff.Line{}, tokens: nil, hlIndex: -1},
+				gutterW: metrics.gutterW,
+			})
+
+			continue
+		}
+		rows = append(rows, row{
+			kind:    rowSplit,
+			header:  "",
+			line:    diff.Line{},
+			tokens:  nil,
+			hlIndex: 0,
+			hlOld:   false,
+			left:    splitCellFrom(split.Left, split.LeftIndex),
+			right:   splitCellFrom(split.Right, split.RightIndex),
+			gutterW: metrics.gutterW,
+		})
+	}
+
+	return rows
+}
+
+// splitCellFrom builds a split cell from an optional line and its body index; a
+// nil line yields an absent cell.
+func splitCellFrom(line *diff.Line, hlIndex int) splitCell {
+	if line == nil {
+		return splitCell{present: false, line: diff.Line{}, tokens: nil, hlIndex: -1}
+	}
+
+	return splitCell{present: true, line: *line, tokens: nil, hlIndex: hlIndex}
+}
+
+// splitHunkHeader formats the hunk marker for a split separator row.
+func splitHunkHeader(split *diff.SplitRow) string {
+	marker := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
+		split.OldStart, split.OldLines, split.NewStart, split.NewLines)
+	if split.Section == "" {
+		return marker
+	}
+
+	return marker + " " + split.Section
 }
 
 // computeMetrics derives the shared monospace layout measurements for a text
