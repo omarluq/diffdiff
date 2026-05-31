@@ -45,6 +45,7 @@ type Content struct {
 	current       *diff.File
 	recent        []string
 	splitView     bool
+	nestedTree    bool
 	onOpenProject func(string)
 }
 
@@ -70,6 +71,7 @@ func NewContent(
 		current:       nil,
 		recent:        nil,
 		splitView:     false,
+		nestedTree:    false,
 		onOpenProject: nil,
 	}
 	content.fileList = NewFileList(content.handleSelect)
@@ -269,12 +271,15 @@ func displayPath(path string) string {
 	return path
 }
 
-// showMenu pops up the hamburger menu beneath its button. The "Split view" item
-// is checkable and reflects the current layout each time the menu opens.
+// showMenu pops up the hamburger menu beneath its button. The "Split view" and
+// "Nested tree" items are checkable and reflect the current layout each time the
+// menu opens.
 func (c *Content) showMenu() {
 	split := fyne.NewMenuItem("Split view", c.toggleSplitView)
 	split.Checked = c.splitView
-	menu := fyne.NewMenu("", split)
+	tree := fyne.NewMenuItem("Nested tree", c.toggleTreeView)
+	tree.Checked = c.nestedTree
+	menu := fyne.NewMenu("", split, tree)
 
 	canvas := fyne.CurrentApp().Driver().CanvasForObject(c.menuButton)
 	if canvas == nil {
@@ -291,6 +296,13 @@ func (c *Content) showMenu() {
 func (c *Content) toggleSplitView() {
 	c.splitView = !c.splitView
 	c.diffView.SetSplit(c.splitView)
+}
+
+// toggleTreeView flips the file panel between the flat path list and the nested
+// directory tree.
+func (c *Content) toggleTreeView() {
+	c.nestedTree = !c.nestedTree
+	c.fileList.SetTree(c.nestedTree)
 }
 
 // SetFiles loads the file set into the file list, updates the status-bar

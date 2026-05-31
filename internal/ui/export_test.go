@@ -48,3 +48,20 @@ func (c *Content) SplitToggle() bool {
 
 	return c.diffView.Split()
 }
+
+// TreeChildPaths re-exports the nested-view directory model: it builds the tree
+// for files and returns the child UIDs of parent ("" for the root), so tests can
+// assert the directory grouping and ordering.
+func TreeChildPaths(files []*diff.File, parent string) []string {
+	model := buildTreeModel(allEntries(files))
+
+	return model.children[parent]
+}
+
+// TreeToggle drives the hamburger "Nested tree" action and reports whether the
+// file panel switched to the nested view, verifying the toggle wiring.
+func (c *Content) TreeToggle() bool {
+	c.toggleTreeView()
+
+	return c.fileList.nested
+}
