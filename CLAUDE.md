@@ -1,120 +1,90 @@
-# diffdiff - Project Instructions for Claude
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-This is a Go project template with a full development toolchain:
-- **CLI Framework**: Fang v2 + Cobra for command-line interfaces
-- **Config**: Viper with YAML/env/defaults support
-- **DI**: samber/do v2 for dependency injection
-- **Libraries**: samber/lo, samber/mo, samber/oops
-- **Logging**: zerolog with slog bridge (slog-zerolog)
+`diffdiff` is a Go CLI built on a strict, batteries-included toolchain. The runtime wires a `samber/do` dependency-injection container that loads Viper-based config and a zerolog/slog logger, exposed through a Cobra command tree styled by Fang.
+
+- **CLI**: Fang v2 (`charm.land/fang/v2`) wrapping Cobra
+- **Config**: Viper (defaults → env → optional YAML file), returned as `mo.Result[*Config]`
+- **DI**: samber/do v2 behind a `di.Container` facade
+- **Functional/monads/errors**: samber `lo`, `mo`, `oops`
+- **Logging**: zerolog with a slog bridge (`slog-zerolog`)
 - **Testing**: stretchr/testify
-- **Tooling**: mise, Task, golangci-lint, lefthook, goreleaser
+- Requires Go 1.26+ (mise pins 1.26.3).
 
-## Development Workflow
+## Commands
 
-### Build & Run
+All workflow runs through Task; `mise exec --` ensures the pinned toolchain. Tasks set repo-local `GOCACHE`/`GOMODCACHE`/`GOTMPDIR` (in `.gocache`, `.gomodcache`, `.tmp`) via the `ensure-cache` dep, so prefer Task over bare `go`.
+
 ```bash
-mise exec -- task build    # Build binary to ./bin/
-mise exec -- task run      # Build and run
-mise exec -- task dev      # Run with live reload (if .air.toml exists)
+mise exec -- task build          # Build to ./bin/diffdiff with version ldflags
+mise exec -- task run            # Build and run
+mise exec -- task test           # go test -v -race ./...
+mise exec -- task test-short     # adds -short
+mise exec -- task test-coverage  # coverage.out + coverage.html
+mise exec -- task lint           # golangci-lint run
+mise exec -- task fmt            # golangci-lint run --fix
+mise exec -- task ci             # fmt → lint → test → build
 ```
 
-### Testing & Quality
+Run a single test (set the cache env so it matches Task, or just run after a `task build` once):
+
 ```bash
-mise exec -- task test           # Run tests with race detector
-mise exec -- task test-coverage  # Tests with HTML coverage report
-mise exec -- task lint           # golangci-lint (strict: 50+ linters)
-mise exec -- task fmt            # Auto-fix lint issues
-mise exec -- task ci             # Full CI pipeline
+GOCACHE="$PWD/.gocache" go test -race -run '^TestRootCommand$' ./cmd/diffdiff/
 ```
 
-### Project Structure
+`task --list` shows all tasks. There is **no** `dev`/live-reload task.
+
+## Architecture
+
+The dependency graph is built once at startup and resolved lazily:
+
 ```
-cmd/diffdiff/          # CLI entrypoint (main.go, root.go, config.go, version.go)
-internal/
-  config/         # Viper config loader (config.go, loader.go)
-  di/             # samber/do DI container (container.go, register.go, config_service.go, logger_service.go)
-  vinfo/          # Build version info (version.go)
-```
-
-## Key Patterns
-
-### Error Handling with samber/oops
-```go
-import "github.com/samber/oops"
-
-return nil, oops.
-    In("config").
-    Code("invalid_config").
-    Wrapf(err, "load configuration")
+main.run() → fang.Execute(ctx, newRootCmd(), WithVersion(vinfo.String()))
+                          │
+            cmd/diffdiff/*.go  (cobra commands; --config sets package var cfgFile)
+                          │
+   di.NewContainer(cfgFile) → do.New() injector
+                          │   ProvideNamedValue(ConfigPathKey, path)
+                          │   RegisterServices: ConfigService, LoggerService
+                          │
+   ConfigService ── config.Load(path).Get() ──► *config.Config (validated)
+   LoggerService ── reads ConfigService ──────► zerolog + slog (slog.SetDefault)
 ```
 
-### Functional Patterns with samber/lo
-```go
-keys := lo.Map(entries, func(e configEntry, _ int) string { return e.key })
-maxLen := lo.MaxBy(keys, func(a, b string) bool { return len(a) > len(b) })
-lookup := lo.SliceToMap(entries, func(e configEntry) (string, string) {
-    return e.key, e.value
-})
-```
+Key seams:
 
-### Monads with samber/mo
-```go
-// Option pattern
-env := mo.EmptyableToOption(cfg.App.Env).OrElse("development")
+- **`internal/di/container.go`** — the public facade. Use `di.NewContainer(configPath)`, `di.MustInvoke[T](c)`, and `c.ShutdownWithContext(ctx)`. Do **not** pass the raw `do.Injector` around; services receive it internally via their `New*` constructors.
+- **Config path injection**: the CLI's `--config` value is stored as a *named* injector value (`di.ConfigPathKey = "config.path"`) and read by `ConfigService` via `do.MustInvokeNamed[string]`. This is how a Cobra flag reaches a DI-constructed service without globals leaking into `internal/`.
+- **Config resolution** (`internal/config/loader.go`): `Load()` layers defaults → env (`DIFFDIFF_` prefix, `.`→`_`) → optional file (`./config.yaml` or `$HOME/.config/diffdiff/config.yaml`), unmarshals, then runs `Config.Validate()`. A missing *default* file is not an error; a missing *explicit* `--config` file is. Returns `mo.Result[*Config]` — call `.Get()` to unwrap.
+- **Validation is strict** (`config.go`): `app.env ∈ {development,test,production}`, `logging.level ∈ {debug,info,warn,error}`, `logging.format ∈ {pretty,json}`. Adding a config field means adding its default in `setDefaults`, a struct field with `mapstructure`/`yaml`/`json` tags, and a `Validate()` branch.
+- **`cmd/diffdiff/`** currently exposes `config` (`show`/`validate`) and `version`. The `config show` command demonstrates the intended `lo` style (`lo.Map`, `lo.SliceToMap`, `lo.MaxBy`).
+- **`internal/vinfo`** — `Version`/`Commit`/`BuildDate` are set via `-ldflags` in `task build`; falls back to `debug.ReadBuildInfo()` for `go install` builds.
 
-// Result pattern (already used in config.Load())
-cfg, err := config.Load(path).Get()
-```
+## Code Style (enforced — 50+ linters, no test exclusions)
 
-### DI with samber/do
-```go
-import "github.com/samber/do/v2"
+- **`exhaustruct`** is enabled for all `^github.com/omarluq/diffdiff/.*` structs: every struct literal in this module must initialize **all** fields. This is the most common surprise when adding code.
+- **`errcheck` with `check-blank: true`**: never discard errors, including `_ =`. Handle every `fmt.Fprintf`/`fmt.Fprintln` return (see `printLine` in `cmd/diffdiff/config.go` for the pattern).
+- Wrap errors with `oops.In("domain").Code("code").Wrapf(err, "msg")`.
+- Use `mo.Option`/`mo.Result` for fallible/optional values; `lo` for collection transforms.
+- Internal-only test helpers are exported through `export_test.go` (same-package test access).
 
-do.Provide(injector, NewConfigService)
-cfg := do.MustInvoke[*ConfigService](injector)
-```
+## Git Hooks (Lefthook)
 
-## Code Style
+Installed via `task hooks-install`. Commits and pushes are gated:
 
-- Follow existing patterns in `internal/di/` and `cmd/diffdiff/`
-- Use `oops.In("domain").Code("code").Wrapf(err, "msg")` for error wrapping
-- Use `lo.Map`, `lo.SliceToMap`, `lo.MaxBy` for collections
-- Use `mo.Option`, `mo.Result` for monadic error handling
-- Never ignore errors — `errcheck` with `check-blank: true` is enabled
-- No test exclusions — all code must pass all 50+ linters
-- Handle every `fmt.Fprintf`/`fmt.Fprintln` return value
+- **pre-commit**: `golangci-lint run --fix` (auto-stages fixes) + `task test-short`
+- **pre-push**: `task test` + `task build`
+- **commit-msg**: **Conventional Commits required** — `type(scope?): subject` where type ∈ `feat|fix|docs|style|refactor|perf|test|chore|ci|build`. Non-conforming messages are rejected.
 
-## When Adding Commands
+## Adding Code
 
-1. Create new file in `cmd/diffdiff/yourcmd.go`
-2. Export `newYourCmd()` function returning `*cobra.Command`
-3. Add to root command in `cmd/diffdiff/root.go`
-4. If config needed, use existing DI services or register new ones
+- **New command**: create `cmd/diffdiff/yourcmd.go` exporting `newYourCmd() *cobra.Command`; register it in `root.go` via `cmd.AddCommand(...)`.
+- **New service**: create `internal/yourservice/`, add `do.Provide(injector, NewYourService)` in `internal/di/register.go`, resolve with `di.MustInvoke[*YourService](container)`. Service constructors take `do.Injector` and pull their dependencies with `do.MustInvoke`.
 
-## When Adding Services
+## Notes
 
-1. Create service in `internal/yourservice/`
-2. Register in `internal/di/register.go`: `do.Provide(injector, NewYourService)`
-3. Inject where needed: `svc := do.MustInvoke[*YourService](injector)`
-
-## Renaming When Using Template
-
-Run `task init` for interactive rename, or manually:
-1. Replace `github.com/omarluq/diffdiff` with your module path
-2. Replace `diffdiff` binary name with your project name
-3. Update `DIFFDIFF_` env prefix in `internal/config/loader.go`
-4. Rename `cmd/diffdiff/` to `cmd/yourproject/`
-
-## Files to Edit When Starting a Project
-
-1. `go.mod` - update module name
-2. `cmd/diffdiff/main.go` - import path
-3. `internal/vinfo/version.go` - import path in ldflags comment
-4. `Taskfile.yml` - binary name, MAIN_PACKAGE, ldflags paths
-5. `.golangci.yml` - exhaustruct include pattern
-6. `.goreleaser.yaml` - project_name, binary name, owner
-7. `.github/workflows/*.yml` - repo references
-8. `.mise.toml` - (optional, for mise pinning)
-9. `config.example.yaml` - (optional, example config)
+- `AGENTS.md` mirrors this guidance for other AI harnesses — keep the two roughly in sync when changing workflow or conventions.
+- This repo started from a Go template (`README.md` describes a `task init` rename flow). That init task/command is **not present** in the current `Taskfile.yml`; if repurposing, the module path `github.com/omarluq/diffdiff`, the `diffdiff` binary name, the `DIFFDIFF_` env prefix (`internal/config/loader.go`), the `exhaustruct` include pattern (`.golangci.yml`), and `cmd/diffdiff/` must be changed by hand.
