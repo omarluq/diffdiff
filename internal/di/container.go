@@ -13,10 +13,12 @@ type Container struct {
 	injector *do.RootScope
 }
 
-// NewContainer builds the root injector for the CLI runtime.
-func NewContainer(configPath string) (*Container, error) {
+// NewContainer builds the root injector for the CLI runtime. configPath is the
+// optional config file path; repoPath is the git repository to inspect.
+func NewContainer(configPath, repoPath string) (*Container, error) {
 	injector := do.New()
 	do.ProvideNamedValue(injector, ConfigPathKey, configPath)
+	do.ProvideNamedValue(injector, RepoPathKey, repoPath)
 	RegisterServices(injector)
 
 	if _, err := do.Invoke[*ConfigService](injector); err != nil {
@@ -37,4 +39,9 @@ func (c *Container) ShutdownWithContext(ctx context.Context) *do.ShutdownReport 
 // MustInvoke resolves a dependency and panics if it cannot be created.
 func MustInvoke[T any](c *Container) T {
 	return do.MustInvoke[T](c.injector)
+}
+
+// Invoke resolves a dependency, returning an error if it cannot be created.
+func Invoke[T any](c *Container) (T, error) {
+	return do.Invoke[T](c.injector)
 }

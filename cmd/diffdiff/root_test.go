@@ -16,6 +16,9 @@ func TestRootCmd_ShowsHelp(t *testing.T) {
 	cmd := main.NewRootCmdForTest()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
+	// Use --help so the test exercises command wiring without launching the GUI
+	// (a bare run opens the diff window and blocks indefinitely).
+	cmd.SetArgs([]string{"--help"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
