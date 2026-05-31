@@ -10,4 +10,5 @@ func RegisterServices(injector do.Injector) {
 	do.Provide(injector, NewHighlighter)
 	do.Provide(injector, NewThemeRegistry)
 	do.Provide(injector, NewFontRegistry)
+	do.Provide(injector, NewRecents)
 }

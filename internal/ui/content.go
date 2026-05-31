@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"os"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	fynetheme "fyne.io/fyne/v2/theme"
@@ -15,6 +18,9 @@ import (
 // takes the remainder.
 const splitOffset = 0.28
 
+// projectMenuWidth is the width of the project picker popup.
+const projectMenuWidth float32 = 360
+
 // Content is the top-level diff browser: a toolbar (hamburger menu + file filter
 // + theme and font selectors) over a horizontal split of the file list and the
 // diff view. It owns the active theme and font and keeps both child widgets and
@@ -25,12 +31,15 @@ type Content struct {
 	highlighter   *highlight.Highlighter
 	fileList      *FileList
 	diffView      *DiffView
+	projectButton *widget.Button
 	menuButton    *widget.Button
 	active        *theme.Theme
 	activeFont    string
 	current       *diff.File
+	recent        []string
 	showIgnored   bool
 	onShowIgnored func(bool)
+	onOpenProject func(string)
 }
 
 // NewContent assembles the diff browser, returning its root canvas object and a
@@ -45,12 +54,15 @@ func NewContent(
 		highlighter:   highlighter,
 		fileList:      nil,
 		diffView:      NewDiffView(highlighter),
+		projectButton: nil,
 		menuButton:    nil,
 		active:        themes.Default(),
 		activeFont:    fonts.DefaultName(),
 		current:       nil,
+		recent:        nil,
 		showIgnored:   false,
 		onShowIgnored: nil,
+		onOpenProject: nil,
 	}
 	content.fileList = NewFileList(content.handleSelect)
 	root := content.assemble()
@@ -67,8 +79,12 @@ func (c *Content) handleSelect(file *diff.File) {
 }
 
 // assemble builds the toolbar and split layout. The toolbar runs left to right:
-// a hamburger menu, the file filter, then the theme and font selectors.
+// a project picker, a hamburger menu, the file filter, then the theme and font
+// selectors.
 func (c *Content) assemble() fyne.CanvasObject {
+	c.projectButton = widget.NewButtonWithIcon("", fynetheme.FolderOpenIcon(), c.showProjectMenu)
+	c.projectButton.Importance = widget.LowImportance
+
 	c.menuButton = widget.NewButtonWithIcon("", fynetheme.MenuIcon(), c.showMenu)
 	c.menuButton.Importance = widget.LowImportance
 
@@ -82,13 +98,76 @@ func (c *Content) assemble() fyne.CanvasObject {
 	fontSelect := widget.NewSelect(c.fonts.Names(), c.SetFont)
 	fontSelect.SetSelected(c.activeFont)
 
+	left := container.NewHBox(c.projectButton, c.menuButton)
 	selectors := container.NewHBox(themeSelect, fontSelect)
-	toolbar := container.NewBorder(nil, nil, c.menuButton, selectors, filter)
+	toolbar := container.NewBorder(nil, nil, left, selectors, filter)
 
 	split := container.NewHSplit(c.fileList, c.diffView)
 	split.SetOffset(splitOffset)
 
 	return container.NewBorder(toolbar, nil, nil, nil, split)
+}
+
+// showProjectMenu pops up the project picker beneath its button: a path input
+// (submit to open) above buttons for the recently opened projects.
+func (c *Content) showProjectMenu() {
+	canvas := fyne.CurrentApp().Driver().CanvasForObject(c.projectButton)
+	if canvas == nil {
+		return
+	}
+
+	var popUp *widget.PopUp
+	open := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		popUp.Hide()
+		if c.onOpenProject != nil {
+			c.onOpenProject(path)
+		}
+	}
+
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Open repository path…")
+	entry.OnSubmitted = open
+
+	items := []fyne.CanvasObject{entry}
+	for _, path := range c.recent {
+		recent := path
+		button := widget.NewButton(displayPath(recent), func() { open(recent) })
+		button.Alignment = widget.ButtonAlignLeading
+		button.Importance = widget.LowImportance
+		items = append(items, button)
+	}
+
+	popUp = widget.NewPopUp(container.NewVBox(items...), canvas)
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(c.projectButton)
+	popUp.Resize(fyne.NewSize(projectMenuWidth, popUp.MinSize().Height))
+	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+c.projectButton.Size().Height))
+	canvas.Focus(entry)
+}
+
+// OnOpenProject registers a listener invoked when the user opens a project,
+// receiving the entered or selected path.
+func (c *Content) OnOpenProject(fn func(string)) {
+	c.onOpenProject = fn
+}
+
+// SetRecentProjects replaces the recent-project list shown in the picker.
+func (c *Content) SetRecentProjects(paths []string) {
+	c.recent = make([]string, len(paths))
+	copy(c.recent, paths)
+}
+
+// displayPath abbreviates the user's home directory to "~" for compact display.
+func displayPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && (path == home || strings.HasPrefix(path, home+string(os.PathSeparator))) {
+		return "~" + path[len(home):]
+	}
+
+	return path
 }
 
 // showMenu pops up the hamburger menu beneath its button. The "Show ignored"
