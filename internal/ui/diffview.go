@@ -203,9 +203,7 @@ func hunkHeader(hunk *diff.Hunk) string {
 // size: glyph advance, row height, gutter width, and the content origin.
 func computeMetrics(textSize float32) rowMetrics {
 	advance := measureAdvance(textSize)
-	height := fyne.MeasureText(monoText, textSize, fyne.TextStyle{
-		Bold: false, Italic: false, Monospace: true, Symbol: false, TabWidth: 0, Underline: false,
-	}).Height
+	height := lineHeight(textSize)
 	padding := advance
 	gutterW := float32(gutterDigits) * advance
 	signW := advance

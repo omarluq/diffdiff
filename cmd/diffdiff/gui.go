@@ -42,22 +42,24 @@ func runGUI(ctx context.Context, repoPath string) error {
 	}
 
 	registry := di.MustInvoke[*theme.Registry](container)
+	fonts := di.MustInvoke[*theme.FontRegistry](container)
 	highlighter := di.MustInvoke[*highlight.Highlighter](container)
 
-	files, err := repo.WorkingDiff()
+	files, err := repo.WorkingDiff(false)
 	if err != nil {
 		return oops.In("gui").Code("working_diff").Wrapf(err, "compute working-tree diff")
 	}
 
 	application := app.NewWithID(appID)
-	root, content := ui.NewContent(registry, highlighter)
+	// Content applies the active theme and font to the app itself (via
+	// fyne.CurrentApp), so the window only needs the assembled root.
+	root, content := ui.NewContent(registry, fonts, highlighter)
 
-	// Keep the window chrome in step with the diff surface when the theme picker
-	// changes, and apply the initial theme.
-	content.OnThemeChange(func(active *theme.Theme) {
-		application.Settings().SetTheme(theme.NewFyneTheme(active))
+	// Re-scan off the UI goroutine when "show ignored" toggles; the worktree walk
+	// can be slow, so only the SetFiles repaint runs on the Fyne main loop.
+	content.OnShowIgnored(func(showIgnored bool) {
+		go reloadDiff(content, repo, showIgnored)
 	})
-	application.Settings().SetTheme(theme.NewFyneTheme(content.ActiveTheme()))
 	content.SetFiles(files)
 
 	window := application.NewWindow(windowTitle(repo.Root()))
@@ -68,6 +70,19 @@ func runGUI(ctx context.Context, repoPath string) error {
 	window.ShowAndRun()
 
 	return nil
+}
+
+// reloadDiff recomputes the working-tree diff (optionally including ignored
+// files) and applies it on the Fyne main loop.
+func reloadDiff(content *ui.Content, repo *git.Repository, showIgnored bool) {
+	files, err := repo.WorkingDiff(showIgnored)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+
+		return
+	}
+
+	fyne.Do(func() { content.SetFiles(files) })
 }
 
 // stopOnCancel quits the application when ctx is canceled (e.g. SIGINT), so the

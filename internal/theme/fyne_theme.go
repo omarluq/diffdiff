@@ -12,11 +12,13 @@ import (
 // and any unmapped color to Fyne's default theme.
 type fyneTheme struct {
 	palette Palette
+	mono    fyne.Resource
 }
 
-// NewFyneTheme returns a fyne.Theme backed by the given diffdiff theme.
-func NewFyneTheme(t *Theme) fyne.Theme {
-	return &fyneTheme{palette: t.palette}
+// NewFyneTheme returns a fyne.Theme backed by the given diffdiff theme, using
+// mono as the monospace font (a nil mono falls back to Fyne's default).
+func NewFyneTheme(t *Theme, mono fyne.Resource) fyne.Theme {
+	return &fyneTheme{palette: t.palette, mono: mono}
 }
 
 // Color maps a Fyne color name onto the palette, delegating unmapped names to
@@ -62,8 +64,13 @@ func (f *fyneTheme) variant() fyne.ThemeVariant {
 	return fynetheme.VariantLight
 }
 
-// Font delegates to the default theme's font for the given text style.
+// Font returns the active monospace font for monospace text and delegates other
+// styles to the default theme.
 func (f *fyneTheme) Font(style fyne.TextStyle) fyne.Resource {
+	if style.Monospace && f.mono != nil {
+		return f.mono
+	}
+
 	return fynetheme.DefaultTheme().Font(style)
 }
 
