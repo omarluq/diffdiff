@@ -6,6 +6,10 @@ vars:
   BUILD_DIR: ./bin
   COVERAGE_FILE: coverage.out
   MAIN_PACKAGE: ./cmd/{{.BINARY_NAME}}
+  # Fyne backend build tags. `wayland` selects the native Wayland client
+  # (no X11/XWayland). Override with BUILD_TAGS="" to use the default GLFW/X11
+  # backend, e.g. on X11-only sessions: `task build BUILD_TAGS=`.
+  BUILD_TAGS: '{{.BUILD_TAGS | default "wayland"}}'
 
 env:
   GOCACHE: '{{.ROOT_DIR}}/.gocache'
@@ -46,7 +50,7 @@ tasks:
         -X github.com/omarluq/diffdiff/internal/vinfo.Commit={{.COMMIT}}
         -X github.com/omarluq/diffdiff/internal/vinfo.BuildDate={{.BUILD_DATE}}
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
+      - go build -tags '{{.BUILD_TAGS}}' -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
 
   clean:
     desc: Clean build artifacts
@@ -60,32 +64,32 @@ tasks:
     desc: Run tests
     deps: [ensure-cache]
     cmds:
-      - go test -v -race ./...
+      - go test -tags '{{.BUILD_TAGS}}' -v -race ./...
 
   test-short:
     desc: Run short tests
     deps: [ensure-cache]
     cmds:
-      - go test -v -race -short ./...
+      - go test -tags '{{.BUILD_TAGS}}' -v -race -short ./...
 
   test-coverage:
     desc: Run tests with coverage
     deps: [ensure-cache]
     cmds:
-      - go test -v -race -coverprofile={{.COVERAGE_FILE}} -covermode=atomic ./...
+      - go test -tags '{{.BUILD_TAGS}}' -v -race -coverprofile={{.COVERAGE_FILE}} -covermode=atomic ./...
       - go tool cover -html={{.COVERAGE_FILE}} -o coverage.html
 
   lint:
     desc: Run golangci-lint
     deps: [ensure-cache]
     cmds:
-      - golangci-lint run
+      - golangci-lint run --build-tags '{{.BUILD_TAGS}}'
 
   fmt:
     desc: Format and fix with golangci-lint
     deps: [ensure-cache]
     cmds:
-      - golangci-lint run --fix
+      - golangci-lint run --build-tags '{{.BUILD_TAGS}}' --fix
 
   deps:
     desc: Download dependencies

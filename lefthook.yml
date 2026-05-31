@@ -3,7 +3,7 @@ pre-commit:
   commands:
     golangci-lint:
       glob: '*.go'
-      run: golangci-lint run --fix
+      run: golangci-lint run --build-tags wayland --fix
       stage_fixed: true
 
     go-test-short:
