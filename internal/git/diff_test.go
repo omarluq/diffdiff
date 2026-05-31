@@ -48,7 +48,7 @@ func TestWorkingDiffModified(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	files, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 
@@ -69,7 +69,7 @@ func TestWorkingDiffUntracked(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	files, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.Equal(t, "new.txt", files[0].Path)
@@ -86,14 +86,16 @@ func TestWorkingDiffDeleted(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	files, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.Equal(t, diff.StatusDeleted, files[0].Status)
 	assert.Equal(t, 3, files[0].Deleted)
 }
 
-func TestWorkingDiffShowIgnored(t *testing.T) {
+// TestWorkingDiffExcludesIgnored confirms a repository .gitignore'd file never
+// appears in the diff; only the new .gitignore itself is a visible change.
+func TestWorkingDiffExcludesIgnored(t *testing.T) {
 	t.Parallel()
 
 	dir := initRepo(t, "keep.go", "package a\n")
@@ -103,25 +105,11 @@ func TestWorkingDiffShowIgnored(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	// Default: the ignored file is excluded (the only change is the new .gitignore).
-	def, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
-	for _, f := range def {
-		assert.NotEqual(t, "debug.log", f.Path, "ignored file must be hidden by default")
+	for _, f := range files {
+		assert.NotEqual(t, "debug.log", f.Path, "ignored file must never appear")
 	}
-
-	// With showIgnored, the ignored file appears as an untracked addition.
-	shown, err := repo.WorkingDiff(true)
-	require.NoError(t, err)
-	var ignored *diff.File
-	for _, f := range shown {
-		if f.Path == "debug.log" {
-			ignored = f
-		}
-	}
-	require.NotNil(t, ignored, "debug.log must appear when showIgnored is true")
-	assert.Equal(t, diff.StatusUntracked, ignored.Status)
-	assert.Equal(t, 1, ignored.Added)
 }
 
 // TestWorkingDiffRespectsGlobalIgnore guards the bug where files ignored only
@@ -139,21 +127,11 @@ func TestWorkingDiffRespectsGlobalIgnore(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	def, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
-	for _, f := range def {
-		assert.NotEqual(t, "creds.secret", f.Path, "globally-ignored file must be hidden by default")
+	for _, f := range files {
+		assert.NotEqual(t, "creds.secret", f.Path, "globally-ignored file must never appear")
 	}
-
-	shown, err := repo.WorkingDiff(true)
-	require.NoError(t, err)
-	found := false
-	for _, f := range shown {
-		if f.Path == "creds.secret" {
-			found = true
-		}
-	}
-	assert.True(t, found, "globally-ignored file must appear when showIgnored is true")
 }
 
 func TestDetails(t *testing.T) {
@@ -178,7 +156,7 @@ func TestWorkingDiffClean(t *testing.T) {
 	repo, err := ourgit.Open(dir)
 	require.NoError(t, err)
 
-	files, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
 	assert.Empty(t, files)
 }
