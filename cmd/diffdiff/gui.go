@@ -79,7 +79,9 @@ func runGUI(ctx context.Context, repoPath string) error {
 		return oops.In("gui").Code("working_diff").Wrapf(err, "compute working-tree diff")
 	}
 	sess.remember(repo.Root())
+	details := repo.Details()
 	content.SetRecentProjects(sess.recents.List())
+	content.SetGitInfo(details.Branch, details.Head)
 	content.SetFiles(files)
 
 	window := application.NewWindow(windowTitle(repo.Root()))
@@ -125,6 +127,7 @@ func (s *session) doOpen(path string) {
 	s.mu.Unlock()
 
 	s.remember(repo.Root())
+	details := repo.Details()
 
 	files, err := repo.WorkingDiff(show)
 	if err != nil {
@@ -137,6 +140,7 @@ func (s *session) doOpen(path string) {
 	fyne.Do(func() {
 		s.window.SetTitle(windowTitle(repo.Root()))
 		s.content.SetRecentProjects(recent)
+		s.content.SetGitInfo(details.Branch, details.Head)
 		s.content.SetFiles(files)
 	})
 }

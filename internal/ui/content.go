@@ -31,6 +31,7 @@ type Content struct {
 	highlighter   *highlight.Highlighter
 	fileList      *FileList
 	diffView      *DiffView
+	statusBar     *statusBar
 	projectButton *widget.Button
 	menuButton    *widget.Button
 	active        *theme.Theme
@@ -54,6 +55,7 @@ func NewContent(
 		highlighter:   highlighter,
 		fileList:      nil,
 		diffView:      NewDiffView(highlighter),
+		statusBar:     newStatusBar(),
 		projectButton: nil,
 		menuButton:    nil,
 		active:        themes.Default(),
@@ -105,7 +107,7 @@ func (c *Content) assemble() fyne.CanvasObject {
 	split := container.NewHSplit(c.fileList, c.diffView)
 	split.SetOffset(splitOffset)
 
-	return container.NewBorder(toolbar, nil, nil, nil, split)
+	return container.NewBorder(toolbar, c.statusBar.object(), nil, nil, split)
 }
 
 // showProjectMenu pops up the project picker beneath its button: a path input
@@ -202,13 +204,28 @@ func (c *Content) OnShowIgnored(fn func(bool)) {
 	c.onShowIgnored = fn
 }
 
-// SetFiles loads the file set into the file list and opens the first file so the
-// diff view is populated immediately rather than blank until the first click.
+// SetFiles loads the file set into the file list, updates the status-bar
+// summary, and opens the first file so the diff view is populated immediately
+// rather than blank until the first click.
 func (c *Content) SetFiles(files []*diff.File) {
 	c.fileList.SetFiles(files)
+
+	added, deleted := 0, 0
+	for _, file := range files {
+		added += file.Added
+		deleted += file.Deleted
+	}
+	c.statusBar.setSummary(len(files), added, deleted)
+
 	if len(files) > 0 {
 		c.handleSelect(files[0])
 	}
+}
+
+// SetGitInfo updates the status bar with the active repository's branch and
+// short HEAD hash.
+func (c *Content) SetGitInfo(branch, head string) {
+	c.statusBar.setGit(branch, head)
 }
 
 // SetTheme switches the active theme by display name. An unknown name is ignored.
@@ -244,6 +261,8 @@ func (c *Content) restyle() {
 		}
 	}
 
+	pal := c.active.Palette()
+	c.statusBar.setPalette(paletteFrom(&pal))
 	c.fileList.SetTheme(c.active)
 	c.diffView.SetFile(c.current, c.active)
 }
