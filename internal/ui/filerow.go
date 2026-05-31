@@ -56,13 +56,13 @@ func (fr *fileRow) CreateRenderer() fyne.WidgetRenderer {
 	icon.FillMode = canvas.ImageFillContain
 
 	return &fileRowRenderer{
-		row:    fr,
-		icon:   icon,
-		glyph:  fr.newText("", fr.palette.foreground, false),
-		adds:   fr.newText("", fr.palette.addEmph, false),
-		dels:   fr.newText("", fr.palette.delEmph, false),
-		runes:  nil,
-		height: fyne.MeasureText(monoText, fileRowTextSize, monoStyle()).Height,
+		row:      fr,
+		icon:     icon,
+		glyph:    fr.newText("", fr.palette.foreground, false),
+		adds:     fr.newText("", fr.palette.addEmph, false),
+		dels:     fr.newText("", fr.palette.delEmph, false),
+		segments: nil,
+		height:   lineHeight(fileRowTextSize),
 	}
 }
 
