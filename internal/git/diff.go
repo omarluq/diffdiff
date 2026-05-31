@@ -8,8 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-git/go-billy/v5/util"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/samber/oops"
 
@@ -20,10 +22,16 @@ import (
 // whether a working-tree file is binary.
 const binarySniffLen = 8000
 
+// ignoredStatus is the synthetic git status assigned to ignored files surfaced
+// by the showIgnored option; git's own Status never reports them.
+var ignoredStatus = &git.FileStatus{Staging: git.Untracked, Worktree: git.Untracked, Extra: ""}
+
 // WorkingDiff returns the diff of the working tree against HEAD (equivalent to
 // `git diff HEAD`): every staged and unstaged change plus untracked files.
-// Files are returned sorted by path.
-func (r *Repository) WorkingDiff() ([]*diff.File, error) {
+// Gitignored files are excluded unless showIgnored is true, in which case the
+// worktree is scanned for ignored, untracked files which are appended as
+// additions. Files are returned sorted by path.
+func (r *Repository) WorkingDiff(showIgnored bool) ([]*diff.File, error) {
 	wt, err := r.repo.Worktree()
 	if err != nil {
 		return nil, oops.In("git").Code("worktree").Wrapf(err, "resolve worktree")
@@ -39,18 +47,65 @@ func (r *Repository) WorkingDiff() ([]*diff.File, error) {
 		return nil, err
 	}
 
-	paths := make([]string, 0, len(status))
+	if showIgnored {
+		return r.workingDiffWithIgnored(wt, head, status)
+	}
+
+	entries := selectEntries(status, r.supplementalMatcher(), false)
+
+	return r.buildFiles(head, entries)
+}
+
+// workingDiffWithIgnored builds the diff including ignored files, using the full
+// matcher (repository .gitignore plus global/system excludes) to both keep
+// ignored entries and scan the worktree for ignored files Status omits.
+func (r *Repository) workingDiffWithIgnored(
+	wt *git.Worktree, head *object.Commit, status git.Status,
+) ([]*diff.File, error) {
+	matcher, err := r.fullMatcher(wt)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := selectEntries(status, matcher, true)
+	if err := r.addIgnored(wt, matcher, entries); err != nil {
+		return nil, err
+	}
+
+	return r.buildFiles(head, entries)
+}
+
+// selectEntries chooses the status entries to render: every tracked change, plus
+// untracked files unless they are ignored and showIgnored is false. go-git's
+// Status only filters repository .gitignore, so untracked files are re-checked
+// against the full matcher (which also covers global and system excludes).
+func selectEntries(status git.Status, matcher gitignore.Matcher, showIgnored bool) map[string]*git.FileStatus {
+	entries := make(map[string]*git.FileStatus, len(status))
 	for path, fs := range status {
 		if fs.Staging == git.Unmodified && fs.Worktree == git.Unmodified {
 			continue
 		}
+		if !showIgnored && fs.Worktree == git.Untracked && matcher.Match(strings.Split(path, "/"), false) {
+			continue
+		}
+		entries[path] = fs
+	}
+
+	return entries
+}
+
+// buildFiles materializes the diff for each entry, sorted by path, dropping any
+// that resolve to no renderable change.
+func (r *Repository) buildFiles(head *object.Commit, entries map[string]*git.FileStatus) ([]*diff.File, error) {
+	paths := make([]string, 0, len(entries))
+	for path := range entries {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
 
 	files := make([]*diff.File, 0, len(paths))
 	for _, path := range paths {
-		file, err := r.buildFile(head, path, status[path])
+		file, err := r.buildFile(head, path, entries[path])
 		if err != nil {
 			return nil, err
 		}
@@ -60,6 +115,82 @@ func (r *Repository) WorkingDiff() ([]*diff.File, error) {
 	}
 
 	return files, nil
+}
+
+// addIgnored scans the worktree for ignored, untracked files (those git's own
+// Status omits) and records them in entries as additions. Tracked files and
+// paths already in entries are left untouched; the .git directory is skipped.
+func (r *Repository) addIgnored(wt *git.Worktree, matcher gitignore.Matcher, entries map[string]*git.FileStatus) error {
+	tracked, err := r.trackedSet()
+	if err != nil {
+		return err
+	}
+
+	scan := &ignoreScan{matcher: matcher, tracked: tracked, entries: entries}
+	if err := util.Walk(wt.Filesystem, "/", scan.visit); err != nil {
+		return oops.In("git").Code("walk_ignored").Wrapf(err, "scan ignored files")
+	}
+
+	return nil
+}
+
+// ignoreScan carries the state for a worktree walk that records ignored,
+// untracked files.
+type ignoreScan struct {
+	matcher gitignore.Matcher
+	tracked map[string]bool
+	entries map[string]*git.FileStatus
+}
+
+// visit is a filepath.WalkFunc that records a path when it is an ignored,
+// untracked file. Unreadable entries are skipped so one error cannot abort the
+// whole scan.
+func (s *ignoreScan) visit(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		return nil //nolint:nilerr // skip an unreadable entry; do not abort the scan
+	}
+
+	rel := strings.Trim(filepath.ToSlash(path), "/")
+	if rel == "" {
+		return nil
+	}
+
+	components := strings.Split(rel, "/")
+	if info.IsDir() {
+		// Never descend into .git, and prune ignored directory trees entirely
+		// (like `git status --ignored`): surfacing every file inside, say,
+		// node_modules or a build cache would be useless and slow.
+		if filepath.Base(rel) == ".git" || s.matcher.Match(components, true) {
+			return filepath.SkipDir
+		}
+
+		return nil
+	}
+
+	if _, seen := s.entries[rel]; seen || s.tracked[rel] {
+		return nil
+	}
+	if s.matcher.Match(components, false) {
+		s.entries[rel] = ignoredStatus
+	}
+
+	return nil
+}
+
+// trackedSet returns the set of index-tracked paths so the ignored-file scan can
+// skip files git already follows.
+func (r *Repository) trackedSet() (map[string]bool, error) {
+	idx, err := r.repo.Storer.Index()
+	if err != nil {
+		return nil, oops.In("git").Code("index").Wrapf(err, "read index")
+	}
+
+	tracked := make(map[string]bool, len(idx.Entries))
+	for _, entry := range idx.Entries {
+		tracked[entry.Name] = true
+	}
+
+	return tracked, nil
 }
 
 // headCommit returns the commit at HEAD, or nil if the repository has no
