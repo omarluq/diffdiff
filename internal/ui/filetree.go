@@ -61,6 +61,9 @@ func (l *FileList) buildList() {
 			row.set(l.visible[id], l.palette)
 		},
 	)
+	// Hide inter-row separators: each row is exactly one glyph tall, so a
+	// separator line lands on the underscore (the lowest glyph) and swallows it.
+	l.list.HideSeparators = true
 	l.list.OnSelected = l.handleSelect
 }
 

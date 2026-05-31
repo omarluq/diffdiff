@@ -54,7 +54,10 @@ func paletteFrom(src *theme.Palette) palette {
 // measureAdvance returns the pixel width of a single monospace glyph at size,
 // the basis for all column math in the diff view.
 func measureAdvance(size float32) float32 {
-	return fyne.MeasureText(monoText, size, fyne.TextStyle{
-		Bold: false, Italic: false, Monospace: true, Symbol: false, TabWidth: 0, Underline: false,
-	}).Width
+	return fyne.MeasureText(monoText, size, monoStyle()).Width
+}
+
+// lineHeight is the row height for monospace text at size.
+func lineHeight(size float32) float32 {
+	return fyne.MeasureText(monoText, size, monoStyle()).Height
 }

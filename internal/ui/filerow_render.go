@@ -18,11 +18,11 @@ import (
 type fileRowRenderer struct {
 	row    *fileRow
 	icon   *canvas.Image
-	glyph  *canvas.Text
-	adds   *canvas.Text
-	dels   *canvas.Text
-	runes  []*canvas.Text
-	height float32
+	glyph    *canvas.Text
+	adds     *canvas.Text
+	dels     *canvas.Text
+	segments []*canvas.Text
+	height   float32
 }
 
 // Destroy has nothing to release.
@@ -87,28 +87,51 @@ func (r *fileRowRenderer) layoutChrome(file *diff.File, pal palette, advance flo
 	return delsX + float32(len(dels)+glyphGap*2)*advance
 }
 
-// layoutPath draws the path one rune at a time so the basename is emphasized in
-// the foreground color (the directory portion muted) and fuzzy-matched runes
-// are accented and bold. The range index is a byte offset (matched against the
-// fuzzy match set); a separate column counter drives positioning so multi-byte
-// runes still advance one cell each.
+// layoutPath draws the path as runs of canvas.Text — one per maximal span of
+// runes sharing a color and weight: the directory is muted, the basename
+// foreground, and fuzzy-matched runes accented and bold. Grouping runs (instead
+// of one object per rune) keeps the object count low and sidesteps a Fyne GL
+// quirk where a lone "_" text object renders blank. A column counter drives
+// positioning so multi-byte runes still advance one monospace cell each.
 func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, startX float32) {
-	r.runes = r.runes[:0]
+	r.segments = r.segments[:0]
 	dirLen := strings.LastIndexByte(filePath, '/') + 1
 
+	var (
+		buf      strings.Builder
+		runColor color.NRGBA
+		runBold  bool
+		runStart int
+		haveRun  bool
+	)
 	col := 0
+
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		txt := r.segmentText(buf.String(), runColor, runBold)
+		txt.Move(fyne.NewPos(startX+float32(runStart)*advance, 0))
+		r.segments = append(r.segments, txt)
+		buf.Reset()
+	}
+
 	for byteOffset, rch := range filePath {
 		emphasized := r.row.entry.matched[byteOffset]
-		txt := r.runeText(string(rch), runeColor(pal, byteOffset >= dirLen, emphasized), emphasized)
-		txt.Move(fyne.NewPos(startX+float32(col)*advance, 0))
-		r.runes = append(r.runes, txt)
+		c := runeColor(pal, byteOffset >= dirLen, emphasized)
+		if !haveRun || c != runColor || emphasized != runBold {
+			flush()
+			runColor, runBold, runStart, haveRun = c, emphasized, col, true
+		}
+		buf.WriteRune(rch)
 		col++
 	}
+	flush()
 }
 
-// runeText builds a single-rune monospace text.
-func (r *fileRowRenderer) runeText(content string, col color.Color, bold bool) *canvas.Text {
-	txt := canvas.NewText(content, col)
+// segmentText builds a monospace text run in the given color and weight.
+func (r *fileRowRenderer) segmentText(content string, textColor color.NRGBA, bold bool) *canvas.Text {
+	txt := canvas.NewText(content, textColor)
 	txt.TextSize = fileRowTextSize
 	style := monoStyle()
 	style.Bold = bold
@@ -132,9 +155,9 @@ func runeColor(pal palette, inBasename, matched bool) color.NRGBA {
 
 // Objects returns the row's drawables in paint order.
 func (r *fileRowRenderer) Objects() []fyne.CanvasObject {
-	objs := make([]fyne.CanvasObject, 0, 4+len(r.runes))
+	objs := make([]fyne.CanvasObject, 0, 4+len(r.segments))
 	objs = append(objs, r.icon, r.glyph, r.adds, r.dels)
-	for _, txt := range r.runes {
+	for _, txt := range r.segments {
 		objs = append(objs, txt)
 	}
 
