@@ -54,13 +54,21 @@ func (v *DiffView) applyHighlight(generation uint64, oldLines, newLines []highli
 	}
 	for i := range v.rows {
 		current := &v.rows[i]
-		if current.kind != rowLine {
-			continue
-		}
-		if current.hlOld {
-			current.tokens = lineTokens(oldLines, current.hlIndex)
-		} else {
-			current.tokens = lineTokens(newLines, current.hlIndex)
+		switch current.kind {
+		case rowLine:
+			if current.hlOld {
+				current.tokens = lineTokens(oldLines, current.hlIndex)
+			} else {
+				current.tokens = lineTokens(newLines, current.hlIndex)
+			}
+		case rowSplit:
+			if current.left.present {
+				current.left.tokens = lineTokens(oldLines, current.left.hlIndex)
+			}
+			if current.right.present {
+				current.right.tokens = lineTokens(newLines, current.right.hlIndex)
+			}
+		case rowSeparator:
 		}
 	}
 	v.list.Refresh()

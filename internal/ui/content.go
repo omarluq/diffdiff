@@ -45,6 +45,7 @@ type Content struct {
 	current       *diff.File
 	recent        []string
 	showIgnored   bool
+	splitView     bool
 	onShowIgnored func(bool)
 	onOpenProject func(string)
 }
@@ -71,6 +72,7 @@ func NewContent(
 		current:       nil,
 		recent:        nil,
 		showIgnored:   false,
+		splitView:     false,
 		onShowIgnored: nil,
 		onOpenProject: nil,
 	}
@@ -272,11 +274,14 @@ func displayPath(path string) string {
 }
 
 // showMenu pops up the hamburger menu beneath its button. The "Show ignored"
-// item is checkable and reflects the current state each time the menu opens.
+// and "Split view" items are checkable and reflect the current state each time
+// the menu opens.
 func (c *Content) showMenu() {
-	item := fyne.NewMenuItem("Show ignored", c.toggleShowIgnored)
-	item.Checked = c.showIgnored
-	menu := fyne.NewMenu("", item)
+	ignored := fyne.NewMenuItem("Show ignored", c.toggleShowIgnored)
+	ignored.Checked = c.showIgnored
+	split := fyne.NewMenuItem("Split view", c.toggleSplitView)
+	split.Checked = c.splitView
+	menu := fyne.NewMenu("", ignored, split)
 
 	canvas := fyne.CurrentApp().Driver().CanvasForObject(c.menuButton)
 	if canvas == nil {
@@ -286,6 +291,13 @@ func (c *Content) showMenu() {
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(c.menuButton)
 	popUp := widget.NewPopUpMenu(menu, canvas)
 	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+c.menuButton.Size().Height))
+}
+
+// toggleSplitView flips between the unified (stacked) and split (side-by-side)
+// diff layouts, re-rendering the current file in the chosen layout.
+func (c *Content) toggleSplitView() {
+	c.splitView = !c.splitView
+	c.diffView.SetSplit(c.splitView)
 }
 
 // toggleShowIgnored flips the show-ignored state and notifies the listener so
