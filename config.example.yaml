@@ -1,0 +1,7 @@
+app:
+  name: diffdiff
+  env: development
+
+logging:
+  level: info
+  format: pretty
