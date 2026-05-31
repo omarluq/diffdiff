@@ -26,16 +26,15 @@ const (
 )
 
 // session holds the mutable runtime state shared by the UI callbacks: the open
-// repository and whether ignored files are shown. Diff scans run off the UI
-// goroutine, so repo and showIgnored are guarded by a mutex.
+// repository. Diff scans run off the UI goroutine, so repo is guarded by a
+// mutex.
 type session struct {
 	window  fyne.Window
 	content *ui.Content
 	recents *recents.Store
 
-	mu          sync.Mutex
-	repo        *git.Repository
-	showIgnored bool
+	mu   sync.Mutex
+	repo *git.Repository
 }
 
 // runGUI opens the diff viewer window for the repository at repoPath and blocks
@@ -64,17 +63,15 @@ func runGUI(ctx context.Context, repoPath string) error {
 	)
 
 	sess := &session{
-		window:      nil,
-		content:     content,
-		recents:     di.MustInvoke[*recents.Store](container),
-		mu:          sync.Mutex{},
-		repo:        repo,
-		showIgnored: false,
+		window:  nil,
+		content: content,
+		recents: di.MustInvoke[*recents.Store](container),
+		mu:      sync.Mutex{},
+		repo:    repo,
 	}
-	content.OnShowIgnored(sess.setShowIgnored)
 	content.OnOpenProject(sess.openProject)
 
-	files, err := repo.WorkingDiff(false)
+	files, err := repo.WorkingDiff()
 	if err != nil {
 		return oops.In("gui").Code("working_diff").Wrapf(err, "compute working-tree diff")
 	}
@@ -93,15 +90,6 @@ func runGUI(ctx context.Context, repoPath string) error {
 	window.ShowAndRun()
 
 	return nil
-}
-
-// setShowIgnored updates the show-ignored flag and rescans the active repository.
-func (s *session) setShowIgnored(show bool) {
-	s.mu.Lock()
-	s.showIgnored = show
-	s.mu.Unlock()
-
-	go s.reload()
 }
 
 // openProject switches the active repository to the one at path, off the UI
@@ -123,13 +111,12 @@ func (s *session) doOpen(path string) {
 
 	s.mu.Lock()
 	s.repo = repo
-	show := s.showIgnored
 	s.mu.Unlock()
 
 	s.remember(repo.Root())
 	details := repo.Details()
 
-	files, err := repo.WorkingDiff(show)
+	files, err := repo.WorkingDiff()
 	if err != nil {
 		s.reportError(err)
 
@@ -143,23 +130,6 @@ func (s *session) doOpen(path string) {
 		s.content.SetGitInfo(details.Branch, details.Head)
 		s.content.SetFiles(files)
 	})
-}
-
-// reload rescans the active repository and repaints on the Fyne main loop.
-func (s *session) reload() {
-	s.mu.Lock()
-	repo := s.repo
-	show := s.showIgnored
-	s.mu.Unlock()
-
-	files, err := repo.WorkingDiff(show)
-	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err.Error())
-
-		return
-	}
-
-	fyne.Do(func() { s.content.SetFiles(files) })
 }
 
 // remember records a project path in the recent list, logging persistence

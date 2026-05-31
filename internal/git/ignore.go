@@ -6,9 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-git/go-billy/v5/osfs"
-	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
-	"github.com/samber/oops"
 )
 
 // supplementalMatcher covers only the ignore sources go-git's Status does NOT
@@ -22,21 +20,6 @@ func (r *Repository) supplementalMatcher() gitignore.Matcher {
 	patterns = append(patterns, globalIgnorePatterns()...)
 
 	return gitignore.NewMatcher(patterns)
-}
-
-// fullMatcher additionally includes the repository's .gitignore files. It is
-// used only when scanning the worktree to surface ignored files (showIgnored),
-// where the cost of reading nested .gitignore files is acceptable.
-func (r *Repository) fullMatcher(wt *git.Worktree) (gitignore.Matcher, error) {
-	patterns, err := gitignore.ReadPatterns(wt.Filesystem, nil)
-	if err != nil {
-		return nil, oops.In("git").Code("read_ignore").Wrapf(err, "read gitignore patterns")
-	}
-
-	patterns = append(patterns, parsePatternFile(filepath.Join(r.root, ".git", "info", "exclude"))...)
-	patterns = append(patterns, globalIgnorePatterns()...)
-
-	return gitignore.NewMatcher(patterns), nil
 }
 
 // globalIgnorePatterns gathers user- and system-level ignore patterns from every

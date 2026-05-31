@@ -44,9 +44,7 @@ type Content struct {
 	activeFont    string
 	current       *diff.File
 	recent        []string
-	showIgnored   bool
 	splitView     bool
-	onShowIgnored func(bool)
 	onOpenProject func(string)
 }
 
@@ -71,9 +69,7 @@ func NewContent(
 		activeFont:    fonts.DefaultName(),
 		current:       nil,
 		recent:        nil,
-		showIgnored:   false,
 		splitView:     false,
-		onShowIgnored: nil,
 		onOpenProject: nil,
 	}
 	content.fileList = NewFileList(content.handleSelect)
@@ -273,15 +269,12 @@ func displayPath(path string) string {
 	return path
 }
 
-// showMenu pops up the hamburger menu beneath its button. The "Show ignored"
-// and "Split view" items are checkable and reflect the current state each time
-// the menu opens.
+// showMenu pops up the hamburger menu beneath its button. The "Split view" item
+// is checkable and reflects the current layout each time the menu opens.
 func (c *Content) showMenu() {
-	ignored := fyne.NewMenuItem("Show ignored", c.toggleShowIgnored)
-	ignored.Checked = c.showIgnored
 	split := fyne.NewMenuItem("Split view", c.toggleSplitView)
 	split.Checked = c.splitView
-	menu := fyne.NewMenu("", ignored, split)
+	menu := fyne.NewMenu("", split)
 
 	canvas := fyne.CurrentApp().Driver().CanvasForObject(c.menuButton)
 	if canvas == nil {
@@ -298,21 +291,6 @@ func (c *Content) showMenu() {
 func (c *Content) toggleSplitView() {
 	c.splitView = !c.splitView
 	c.diffView.SetSplit(c.splitView)
-}
-
-// toggleShowIgnored flips the show-ignored state and notifies the listener so
-// the host can re-scan the repository.
-func (c *Content) toggleShowIgnored() {
-	c.showIgnored = !c.showIgnored
-	if c.onShowIgnored != nil {
-		c.onShowIgnored(c.showIgnored)
-	}
-}
-
-// OnShowIgnored registers a listener invoked when the "show ignored" option
-// toggles, receiving the new state.
-func (c *Content) OnShowIgnored(fn func(bool)) {
-	c.onShowIgnored = fn
 }
 
 // SetFiles loads the file set into the file list, updates the status-bar
