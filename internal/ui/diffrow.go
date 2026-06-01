@@ -102,12 +102,14 @@ func newDiffRow(metrics rowMetrics, pal palette, textSize float32) *diffRow {
 	return dr
 }
 
-// setRow swaps in new content and refreshes; metrics stay fixed for the row's
-// lifetime so only the renderer's objects are rebuilt. data is taken by pointer
-// to avoid copying the wide row struct on every recycle.
-func (dr *diffRow) setRow(data *row, pal palette) {
+// setRow swaps in new content and refreshes. metrics is re-applied too so a
+// recycled row picks up new monospace measurements after a theme/font change
+// (the list reuses widgets rather than recreating them). data is taken by
+// pointer to avoid copying the wide row struct on every recycle.
+func (dr *diffRow) setRow(data *row, pal palette, metrics rowMetrics) {
 	dr.data = *data
 	dr.palette = pal
+	dr.metrics = metrics
 	dr.hasData = true
 	dr.Refresh()
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/samber/lo"
 	"github.com/samber/oops"
 
 	"github.com/omarluq/diffdiff/internal/diff"
@@ -69,10 +70,7 @@ func selectEntries(status git.Status, matcher gitignore.Matcher) map[string]*git
 // buildFiles materializes the diff for each entry, sorted by path, dropping any
 // that resolve to no renderable change.
 func (r *Repository) buildFiles(head *object.Commit, entries map[string]*git.FileStatus) ([]*diff.File, error) {
-	paths := make([]string, 0, len(entries))
-	for path := range entries {
-		paths = append(paths, path)
-	}
+	paths := lo.Keys(entries)
 	sort.Strings(paths)
 
 	files := make([]*diff.File, 0, len(paths))

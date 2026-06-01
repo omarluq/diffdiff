@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/samber/lo"
 	"github.com/samber/oops"
 )
 
@@ -82,15 +83,7 @@ func (s *Store) Add(path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	filtered := make([]string, 0, len(s.entries)+1)
-	filtered = append(filtered, abs)
-
-	for _, entry := range s.entries {
-		if entry != abs {
-			filtered = append(filtered, entry)
-		}
-	}
-
+	filtered := append([]string{abs}, lo.Without(s.entries, abs)...)
 	if len(filtered) > s.max {
 		filtered = filtered[:s.max]
 	}
