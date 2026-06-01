@@ -69,6 +69,7 @@ func runGUI(ctx context.Context) error {
 	}
 
 	application := app.NewWithID(appID)
+	application.SetIcon(fyne.NewStaticResource("diffdiff.png", assets.Mascot))
 	root, content := ui.NewContent(
 		di.MustInvoke[*theme.Registry](container),
 		di.MustInvoke[*theme.FontRegistry](container),

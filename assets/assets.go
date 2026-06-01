@@ -5,9 +5,9 @@ package assets
 import "embed"
 
 // Icons holds the Material Icon Theme file- and folder-type icon PNGs under
-// imgs/icons/. Only that subdirectory is embedded, so the larger README-only
-// images alongside it (imgs/mascot.png, imgs/readmebanner.png) stay out of the
-// binary.
+// imgs/icons/. Only that subdirectory is embedded, so the README-only banner
+// (imgs/readmebanner.png) stays out of the binary; the mascot is embedded
+// separately as Mascot.
 //
 //go:embed imgs/icons/*.png
 var Icons embed.FS
@@ -17,3 +17,9 @@ var Icons embed.FS
 //
 //go:embed gifs/nyan-cat-poptart-cat.gif
 var Nyan []byte
+
+// Mascot is the application icon, set as the running window/taskbar icon via
+// App.SetIcon and installed as the desktop launcher icon by `task install`.
+//
+//go:embed imgs/mascot.png
+var Mascot []byte
