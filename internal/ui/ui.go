@@ -34,6 +34,9 @@ type palette struct {
 	addEmph    color.NRGBA
 	delBg      color.NRGBA
 	delEmph    color.NRGBA
+	// dark reports whether the active theme is dark, used to pick light icon
+	// variants on light themes.
+	dark bool
 }
 
 // paletteFrom projects a theme.Palette into the local palette type. It takes a
@@ -50,6 +53,7 @@ func paletteFrom(src *theme.Palette) palette {
 		addEmph:    src.AddEmph,
 		delBg:      src.DelBg,
 		delEmph:    src.DelEmph,
+		dark:       src.Dark,
 	}
 }
 

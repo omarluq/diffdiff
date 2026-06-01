@@ -4,22 +4,20 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
-
-	"github.com/omarluq/diffdiff/internal/icons"
 )
 
-// branchRow is a directory node in the nested file view: a Material folder icon —
-// open or closed to mirror the branch state — followed by the directory name. It
-// is a recycled tree node; set swaps in new content. The enclosing widget.Tree
-// supplies depth indentation, and its disclosure caret is hidden (see the
-// theme's Icon), so the folder icon alone signals open/closed and a row tap
-// toggles it.
+// branchRow is a directory node in the nested file view: a Material folder icon
+// (resolved by the caller to the directory's open/closed and light/dark variant)
+// followed by the directory name. It is a recycled tree node; set swaps in new
+// content. The enclosing widget.Tree supplies depth indentation, and its
+// disclosure caret is hidden (see the theme's Icon), so the folder icon alone
+// signals open/closed and a row tap toggles it.
 type branchRow struct {
 	widget.BaseWidget
 
 	palette palette
 	label   string
-	open    bool
+	icon    fyne.Resource
 	hasData bool
 	advance float32
 }
@@ -30,7 +28,7 @@ func newBranchRow(pal palette) *branchRow {
 		BaseWidget: widget.BaseWidget{},
 		palette:    pal,
 		label:      "",
-		open:       false,
+		icon:       nil,
 		hasData:    false,
 		advance:    measureAdvance(fileRowTextSize),
 	}
@@ -39,18 +37,17 @@ func newBranchRow(pal palette) *branchRow {
 	return row
 }
 
-// set swaps in a new label, open state, and palette, then refreshes.
-func (br *branchRow) set(label string, open bool, pal palette) {
+// set swaps in a new label, folder icon, and palette, then refreshes.
+func (br *branchRow) set(label string, icon fyne.Resource, pal palette) {
 	br.label = label
-	br.open = open
+	br.icon = icon
 	br.palette = pal
 	br.hasData = true
 	br.Refresh()
 }
 
 // CreateRenderer assembles the node's reusable folder icon and name text. The
-// icon resource is left nil here and assigned in Refresh (matching fileRow); a
-// canvas.Image created with a resource but no layout pass renders blank.
+// icon resource is assigned in Refresh.
 func (br *branchRow) CreateRenderer() fyne.WidgetRenderer {
 	icon := canvas.NewImageFromResource(nil)
 	icon.FillMode = canvas.ImageFillContain
@@ -87,12 +84,12 @@ func (r *branchRowRenderer) MinSize() fyne.Size {
 // Layout is a no-op: positions are absolute and assigned in Refresh.
 func (r *branchRowRenderer) Layout(_ fyne.Size) {}
 
-// Refresh repaints the node for the current directory name and open state.
+// Refresh repaints the node for the current directory name and folder icon.
 func (r *branchRowRenderer) Refresh() {
 	if !r.row.hasData {
 		return
 	}
-	r.icon.Resource = icons.Folder(r.row.open)
+	r.icon.Resource = r.row.icon
 	r.icon.Resize(fyne.NewSize(r.height, r.height))
 	r.icon.Move(fyne.NewPos(0, 0))
 	r.icon.Refresh()

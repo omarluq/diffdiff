@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/omarluq/diffdiff/internal/diff"
+	"github.com/omarluq/diffdiff/internal/icons"
 	"github.com/omarluq/diffdiff/internal/theme"
 )
 
@@ -107,7 +108,8 @@ func (l *FileList) buildTree() {
 func (l *FileList) updateNode(uid widget.TreeNodeID, branch bool, obj fyne.CanvasObject) {
 	if branch {
 		if row, ok := obj.(*branchRow); ok {
-			row.set(l.model.label(uid), l.tree.IsBranchOpen(uid), l.palette)
+			label := l.model.label(uid)
+			row.set(label, icons.FolderFor(label, l.tree.IsBranchOpen(uid), l.palette.dark), l.palette)
 		}
 
 		return
