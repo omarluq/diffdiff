@@ -348,6 +348,23 @@ func TestSetThemePreservesDiffRows(t *testing.T) {
 		"a theme switch recolors in place without dropping or re-flattening rows")
 }
 
+func TestDiffRowPoolHidesSurplusRuns(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	// A dense line (5 runs) then a sparse line (2 runs) reuse the same recycled
+	// row: only 2 runs stay visible; the 3 surplus pooled runs must be hidden so
+	// no stale text from the denser line bleeds through.
+	visible := ui.DiffRowVisibleTextRuns(
+		[]string{"a", "b", "c", "d", "e"},
+		[]string{"x", "y"},
+	)
+	assert.Equal(t, 2, visible,
+		"surplus pooled text runs are hidden when a sparser line recycles the row")
+}
+
 func TestTreeLeavesKeyedByFullPath(t *testing.T) {
 	t.Parallel()
 

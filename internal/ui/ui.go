@@ -65,13 +65,25 @@ func paletteFrom(src *theme.Palette) palette {
 // in exactly one place.
 func newMonoText(content string, col color.Color, size float32, bold bool, align fyne.TextAlign) *canvas.Text {
 	txt := canvas.NewText(content, col)
-	txt.TextSize = size
-	style := monoStyle()
-	style.Bold = bold
-	txt.TextStyle = style
+	setMonoText(txt, content, col, size, bold, false)
 	txt.Alignment = align
 
 	return txt
+}
+
+// setMonoText reconfigures an existing canvas.Text in place (content, color,
+// size, weight) without allocating. Renderers reuse a pool of text objects
+// across refreshes and call this to repaint each pooled run, avoiding a fresh
+// allocation per token on every scroll frame. Alignment is left untouched since
+// it is fixed per call site.
+func setMonoText(txt *canvas.Text, content string, col color.Color, size float32, bold, italic bool) {
+	txt.Text = content
+	txt.Color = col
+	txt.TextSize = size
+	style := monoStyle()
+	style.Bold = bold
+	style.Italic = italic
+	txt.TextStyle = style
 }
 
 // monoMetricsCache memoizes monospace glyph measurements by text size. The
