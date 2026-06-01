@@ -1,4 +1,6 @@
-![diffdiff](assets/imgs/readmebanner.png)
+<p align="center">
+  ![diffdiff](assets/imgs/mascot.png)
+</p>
 
 <p align="center">
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-%3E%3D1.26-00ADD8?style=flat&labelColor=24292e&logo=go&logoColor=white" alt="Go"></a>
