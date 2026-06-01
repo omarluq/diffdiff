@@ -1,5 +1,5 @@
 <p align="center">
-  ![diffdiff](assets/imgs/mascot.png)
+  <img src="assets/imgs/mascot.png" alt="diffdiff" width="280">
 </p>
 
 <p align="center">
@@ -8,15 +8,7 @@
   <a href="https://github.com/omarluq/diffdiff/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/omarluq/diffdiff/ci.yml?style=flat&labelColor=24292e&label=Tests&logo=github&logoColor=white" alt="Tests"></a>
 </p>
 
-A fast desktop viewer for your Git working-tree diff, built with [Fyne](https://fyne.io).
-
-## Features
-
-- **Working-tree diff** — every staged, unstaged, and untracked change (`git diff HEAD`); gitignored files are excluded.
-- **Syntax highlighting** — via [Chroma](https://github.com/alecthomas/chroma), with 20 built-in themes.
-- **File panel** — fuzzy filter, Material Icon Theme icons, and a flat-path or nested-tree view.
-- **Diff layouts** — unified (stacked) or split (side-by-side), with intra-line emphasis.
-- **Fonts** — a picker of bundled programming fonts.
+A fast, themeable desktop app for browsing your Git working-tree diff, built with [Fyne](https://fyne.io).
 
 ## Run
 
