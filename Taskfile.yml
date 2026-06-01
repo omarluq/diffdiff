@@ -52,6 +52,48 @@ tasks:
     cmds:
       - go build -tags '{{.BUILD_TAGS}}' -ldflags "{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PACKAGE}}
 
+  install:
+    desc: Install diffdiff as a desktop app for the current user (~/.local, no sudo)
+    deps: [build]
+    vars:
+      APP_ID: com.omarluq.diffdiff
+      PREFIX:
+        sh: printf '%s/.local' "$HOME"
+    cmds:
+      - mkdir -p "{{.PREFIX}}/bin" "{{.PREFIX}}/share/applications" "{{.PREFIX}}/share/icons/hicolor/512x512/apps"
+      - install -m 0755 "{{.BUILD_DIR}}/{{.BINARY_NAME}}" "{{.PREFIX}}/bin/{{.BINARY_NAME}}"
+      - install -m 0644 assets/imgs/mascot.png "{{.PREFIX}}/share/icons/hicolor/512x512/apps/{{.APP_ID}}.png"
+      - |
+        cat > "{{.PREFIX}}/share/applications/{{.APP_ID}}.desktop" <<EOF
+        [Desktop Entry]
+        Type=Application
+        Name=diffdiff
+        Comment=Git working-tree diff viewer
+        Exec={{.PREFIX}}/bin/{{.BINARY_NAME}}
+        Icon={{.APP_ID}}
+        Terminal=false
+        Categories=Development;RevisionControl;
+        StartupWMClass={{.APP_ID}}
+        EOF
+      # Refresh the desktop/icon caches when the tools exist (harmless if absent).
+      - update-desktop-database "{{.PREFIX}}/share/applications" 2>/dev/null || true
+      - gtk-update-icon-cache -f -t "{{.PREFIX}}/share/icons/hicolor" 2>/dev/null || true
+      - 'echo "Installed diffdiff to {{.PREFIX}}. Launch from your app menu, or run {{.PREFIX}}/bin/{{.BINARY_NAME}} ({{.PREFIX}}/bin must be on PATH)."'
+
+  uninstall:
+    desc: Remove the diffdiff desktop app installed by `task install`
+    vars:
+      APP_ID: com.omarluq.diffdiff
+      PREFIX:
+        sh: printf '%s/.local' "$HOME"
+    cmds:
+      - rm -f "{{.PREFIX}}/bin/{{.BINARY_NAME}}"
+      - rm -f "{{.PREFIX}}/share/applications/{{.APP_ID}}.desktop"
+      - rm -f "{{.PREFIX}}/share/icons/hicolor/512x512/apps/{{.APP_ID}}.png"
+      - update-desktop-database "{{.PREFIX}}/share/applications" 2>/dev/null || true
+      - gtk-update-icon-cache -f -t "{{.PREFIX}}/share/icons/hicolor" 2>/dev/null || true
+      - 'echo "Removed diffdiff from {{.PREFIX}}."'
+
   clean:
     desc: Clean build artifacts
     cmds:
