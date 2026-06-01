@@ -16,12 +16,17 @@ import (
 // and fuzzy-matched characters can each take their own color and weight. The
 // per-rune objects are rebuilt on each set since the path varies.
 type fileRowRenderer struct {
-	row      *fileRow
-	icon     *canvas.Image
-	glyph    *canvas.Text
-	adds     *canvas.Text
-	dels     *canvas.Text
+	row  *fileRow
+	icon *canvas.Image
+	glyph *canvas.Text
+	adds  *canvas.Text
+	dels  *canvas.Text
+	// segments is a reused pool of path-run texts: liveSegs marks how many are
+	// active this refresh, acquireSegment hands out (and grows) entries, and the
+	// surplus is hidden — so a recycled row does not allocate a canvas.Text per
+	// path run on every list update.
 	segments []*canvas.Text
+	liveSegs int
 	height   float32
 }
 
@@ -46,9 +51,13 @@ func (r *fileRowRenderer) Refresh() {
 	pal := r.row.palette
 	advance := r.row.advance
 
+	r.liveSegs = 0
 	r.layoutIcon(file.Path)
 	cursor := r.layoutChrome(file, pal, advance)
 	r.layoutPath(file.Path, pal, advance, cursor)
+	for i := r.liveSegs; i < len(r.segments); i++ {
+		r.segments[i].Hide()
+	}
 	canvas.Refresh(r.row)
 }
 
@@ -94,7 +103,6 @@ func (r *fileRowRenderer) layoutChrome(file *diff.File, pal palette, advance flo
 // quirk where a lone "_" text object renders blank. A column counter drives
 // positioning so multi-byte runes still advance one monospace cell each.
 func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, startX float32) {
-	r.segments = r.segments[:0]
 	dirLen := strings.LastIndexByte(filePath, '/') + 1
 
 	// In basename-only mode (a nested-tree leaf) render just the base name;
@@ -118,9 +126,8 @@ func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, star
 		if buf.Len() == 0 {
 			return
 		}
-		txt := r.segmentText(buf.String(), runColor, runBold)
+		txt := r.acquireSegment(buf.String(), runColor, runBold)
 		txt.Move(fyne.NewPos(startX+float32(runStart)*advance, 0))
-		r.segments = append(r.segments, txt)
 		buf.Reset()
 	}
 
@@ -138,9 +145,22 @@ func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, star
 	flush()
 }
 
-// segmentText builds a monospace text run in the given color and weight.
-func (r *fileRowRenderer) segmentText(content string, textColor color.NRGBA, bold bool) *canvas.Text {
-	return newMonoText(content, textColor, fileRowTextSize, bold, fyne.TextAlignLeading)
+// acquireSegment returns the next pooled path-run text, reconfigured to the given
+// content, color, and weight (growing the pool and marking it visible as needed).
+func (r *fileRowRenderer) acquireSegment(content string, textColor color.NRGBA, bold bool) *canvas.Text {
+	if r.liveSegs < len(r.segments) {
+		txt := r.segments[r.liveSegs]
+		txt.Show()
+		setMonoText(txt, content, textColor, fileRowTextSize, bold, false)
+		r.liveSegs++
+
+		return txt
+	}
+	txt := newMonoText(content, textColor, fileRowTextSize, bold, fyne.TextAlignLeading)
+	r.segments = append(r.segments, txt)
+	r.liveSegs++
+
+	return txt
 }
 
 // runeColor chooses a path rune's color: accent for a fuzzy match, foreground

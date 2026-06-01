@@ -1,10 +1,54 @@
 package ui
 
 import (
+	"image/color"
 	"sort"
 
 	"github.com/omarluq/diffdiff/internal/diff"
+	"github.com/omarluq/diffdiff/internal/highlight"
 )
+
+// DiffRowVisibleTextRuns applies first then second as the highlighted tokens of a
+// single recycled diff row and returns how many pooled text runs are visible
+// afterward. It verifies the renderer's pooling invariant: text runs left over
+// from a denser line must be hidden when a sparser line reuses the widget, so the
+// visible count equals len(second), not the high-water mark.
+func DiffRowVisibleTextRuns(first, second []string) int {
+	// Metrics are irrelevant to the pooling invariant (only positions depend on
+	// them), so a zero value avoids a computeMetrics call here.
+	dr := newDiffRow(rowMetrics{}, palette{}, diffTextSize)
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return -1
+	}
+
+	white := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+	apply := func(runs []string) {
+		tokens := make([]highlight.Token, 0, len(runs))
+		for _, text := range runs {
+			tokens = append(tokens, highlight.Token{Text: text, Color: white, Bold: false, Italic: false})
+		}
+		dr.data = row{
+			kind:   rowLine,
+			line:   diff.Line{Kind: diff.LineContext, OldNum: 1, NewNum: 1, Content: "x", Segments: nil},
+			tokens: tokens,
+		}
+		dr.hasData = true
+		renderer.Refresh()
+	}
+
+	apply(first)
+	apply(second)
+
+	visible := 0
+	for _, txt := range renderer.texts {
+		if txt.Visible() {
+			visible++
+		}
+	}
+
+	return visible
+}
 
 // DiffShowsLoading reports whether the diff view is currently showing its
 // "loading" placeholder, letting tests verify the lazy-load placeholder/swap.

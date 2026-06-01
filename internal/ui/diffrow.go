@@ -122,10 +122,10 @@ func (dr *diffRow) CreateRenderer() fyne.WidgetRenderer {
 		leftBg:     canvas.NewRectangle(color.Transparent),
 		rightBg:    canvas.NewRectangle(color.Transparent),
 		divider:    canvas.NewRectangle(color.Transparent),
-		oldNum:     dr.newText("", dr.palette.muted, fyne.TextAlignTrailing),
-		newNum:     dr.newText("", dr.palette.muted, fyne.TextAlignTrailing),
-		sign:       dr.newText("", dr.palette.muted, fyne.TextAlignCenter),
-		header:     dr.newText("", dr.palette.muted, fyne.TextAlignLeading),
+		oldNum:     dr.newText(dr.palette.muted, fyne.TextAlignTrailing),
+		newNum:     dr.newText(dr.palette.muted, fyne.TextAlignTrailing),
+		sign:       dr.newText(dr.palette.muted, fyne.TextAlignCenter),
+		header:     dr.newText(dr.palette.muted, fyne.TextAlignLeading),
 		emphasis:   nil,
 		texts:      nil,
 		width:      0,
@@ -134,9 +134,11 @@ func (dr *diffRow) CreateRenderer() fyne.WidgetRenderer {
 	return rend
 }
 
-// newText builds a monospace canvas text in this row's size and style.
-func (dr *diffRow) newText(content string, col color.Color, align fyne.TextAlign) *canvas.Text {
-	return newMonoText(content, col, dr.textSize, false, align)
+// newText builds an empty monospace canvas text in this row's size and style,
+// used for the fixed chrome cells (gutters, sign, header) whose content is set
+// later; the pooled content runs use acquireText instead.
+func (dr *diffRow) newText(col color.Color, align fyne.TextAlign) *canvas.Text {
+	return newMonoText("", col, dr.textSize, false, align)
 }
 
 // diffRowRenderer lays out one diff row. In unified mode background spans the
@@ -146,6 +148,10 @@ func (dr *diffRow) newText(content string, col color.Color, align fyne.TextAlign
 // reused; emphasis and texts are rebuilt per refresh because their counts vary.
 // width caches the last laid-out width so a data-only Refresh can re-place the
 // width-dependent split columns without waiting for a resize.
+// emphasis and texts are reused pools, not rebuilt per refresh: liveEmph/
+// liveTexts mark how many are active this frame, acquireEmph/acquireText hand
+// out (and grow) entries, and the surplus is hidden. This keeps a scroll frame
+// from allocating a canvas.Text per token.
 type diffRowRenderer struct {
 	row        *diffRow
 	background *canvas.Rectangle
@@ -158,7 +164,54 @@ type diffRowRenderer struct {
 	header     *canvas.Text
 	emphasis   []*canvas.Rectangle
 	texts      []*canvas.Text
+	liveEmph   int
+	liveTexts  int
 	width      float32
+}
+
+// acquireText returns the next pooled text run, growing the pool if needed and
+// marking it visible. The caller sets its content, color, style, and position.
+func (r *diffRowRenderer) acquireText() *canvas.Text {
+	if r.liveTexts < len(r.texts) {
+		txt := r.texts[r.liveTexts]
+		txt.Show()
+		r.liveTexts++
+
+		return txt
+	}
+	txt := newMonoText("", r.row.palette.foreground, r.row.textSize, false, fyne.TextAlignLeading)
+	r.texts = append(r.texts, txt)
+	r.liveTexts++
+
+	return txt
+}
+
+// acquireEmph returns the next pooled emphasis rectangle, growing the pool if
+// needed and marking it visible. The caller sets its color and geometry.
+func (r *diffRowRenderer) acquireEmph() *canvas.Rectangle {
+	if r.liveEmph < len(r.emphasis) {
+		rect := r.emphasis[r.liveEmph]
+		rect.Show()
+		r.liveEmph++
+
+		return rect
+	}
+	rect := canvas.NewRectangle(color.Transparent)
+	r.emphasis = append(r.emphasis, rect)
+	r.liveEmph++
+
+	return rect
+}
+
+// hideSurplus hides the pooled texts and emphasis rectangles not used this
+// frame, so a row recycled from a denser line draws no stale leftovers.
+func (r *diffRowRenderer) hideSurplus() {
+	for i := r.liveTexts; i < len(r.texts); i++ {
+		r.texts[i].Hide()
+	}
+	for i := r.liveEmph; i < len(r.emphasis); i++ {
+		r.emphasis[i].Hide()
+	}
 }
 
 // Destroy has no resources to release.
@@ -175,6 +228,8 @@ func (r *diffRowRenderer) Refresh() {
 	if !r.row.hasData {
 		return
 	}
+	r.liveTexts = 0
+	r.liveEmph = 0
 	switch r.row.data.kind {
 	case rowSeparator:
 		r.refreshSeparator()
@@ -185,6 +240,7 @@ func (r *diffRowRenderer) Refresh() {
 	default:
 		r.refreshLine()
 	}
+	r.hideSurplus()
 	canvas.Refresh(r.row)
 }
 

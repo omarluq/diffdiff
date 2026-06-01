@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 )
@@ -20,8 +19,6 @@ func (r *diffRowRenderer) refreshSeparator() {
 	r.oldNum.Hide()
 	r.newNum.Hide()
 	r.sign.Hide()
-	r.emphasis = nil
-	r.texts = nil
 
 	r.header.Show()
 	r.header.Text = r.row.data.header
@@ -92,7 +89,6 @@ func (r *diffRowRenderer) layoutGutters(line diff.Line) {
 // sized by the run's rune count at the mono advance.
 func (r *diffRowRenderer) buildEmphasis(line diff.Line) {
 	emphColor := emphasisColor(r.row.palette, line.Kind)
-	r.emphasis = r.emphasis[:0]
 	if len(line.Segments) == 0 || emphColor == (color.NRGBA{}) {
 		return
 	}
@@ -102,10 +98,10 @@ func (r *diffRowRenderer) buildEmphasis(line diff.Line) {
 	for _, seg := range line.Segments {
 		runes := utf8.RuneCountInString(seg.Text)
 		if seg.Intraline && runes > 0 {
-			rect := canvas.NewRectangle(emphColor)
+			rect := r.acquireEmph()
+			rect.FillColor = emphColor
 			rect.Move(fyne.NewPos(metrics.contentX+float32(col)*metrics.advance, 0))
 			rect.Resize(fyne.NewSize(float32(runes)*metrics.advance, metrics.height))
-			r.emphasis = append(r.emphasis, rect)
 		}
 		col += runes
 	}
@@ -114,7 +110,6 @@ func (r *diffRowRenderer) buildEmphasis(line diff.Line) {
 // buildTexts lays out the line content as syntax-colored runs when highlight
 // tokens are available, falling back to a single foreground run otherwise.
 func (r *diffRowRenderer) buildTexts(line diff.Line) {
-	r.texts = r.texts[:0]
 	if len(r.row.data.tokens) > 0 {
 		r.buildHighlightedTexts()
 
@@ -123,7 +118,7 @@ func (r *diffRowRenderer) buildTexts(line diff.Line) {
 	r.buildPlainText(line.Content)
 }
 
-// buildHighlightedTexts positions one canvas.Text per highlight token, advancing
+// buildHighlightedTexts positions one pooled text per highlight token, advancing
 // the column cursor by each token's rune count.
 func (r *diffRowRenderer) buildHighlightedTexts() {
 	metrics := r.row.metrics
@@ -133,11 +128,9 @@ func (r *diffRowRenderer) buildHighlightedTexts() {
 		if runes == 0 {
 			continue
 		}
-		txt := r.row.newText(tok.Text, tok.Color, fyne.TextAlignLeading)
-		txt.TextStyle.Bold = tok.Bold
-		txt.TextStyle.Italic = tok.Italic
+		txt := r.acquireText()
+		setMonoText(txt, tok.Text, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
 		txt.Move(fyne.NewPos(metrics.contentX+float32(col)*metrics.advance, 0))
-		r.texts = append(r.texts, txt)
 		col += runes
 	}
 }
@@ -148,9 +141,9 @@ func (r *diffRowRenderer) buildPlainText(content string) {
 	if content == "" {
 		return
 	}
-	txt := r.row.newText(content, r.row.palette.foreground, fyne.TextAlignLeading)
+	txt := r.acquireText()
+	setMonoText(txt, content, r.row.palette.foreground, r.row.textSize, false, false)
 	txt.Move(fyne.NewPos(r.row.metrics.contentX, 0))
-	r.texts = append(r.texts, txt)
 }
 
 // gutterLabel renders a 1-based line number, or blank for the zero sentinel.
@@ -209,7 +202,6 @@ func (r *diffRowRenderer) buildSplit(width float32) {
 	r.background.Hide()
 	r.sign.Hide()
 	r.header.Hide()
-	r.emphasis = r.emphasis[:0]
 	r.leftBg.Show()
 	r.rightBg.Show()
 	r.divider.Show()
@@ -243,7 +235,6 @@ func (r *diffRowRenderer) buildSplit(width float32) {
 	leftContentX := metrics.padding + metrics.gutterW + metrics.advance
 	rightContentX := rightGutterX + metrics.gutterW + metrics.advance
 
-	r.texts = r.texts[:0]
 	r.appendCellTexts(left, leftContentX, columnsFor(mid, leftContentX, metrics))
 	r.appendCellTexts(right, rightContentX, columnsFor(width, rightContentX, metrics))
 }
@@ -317,11 +308,9 @@ func (r *diffRowRenderer) appendCellTexts(cell *splitCell, contentX float32, max
 		if col+runes > maxCols {
 			text = firstRunes(tok.Text, maxCols-col)
 		}
-		txt := r.row.newText(text, tok.Color, fyne.TextAlignLeading)
-		txt.TextStyle.Bold = tok.Bold
-		txt.TextStyle.Italic = tok.Italic
+		txt := r.acquireText()
+		setMonoText(txt, text, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
 		txt.Move(fyne.NewPos(contentX+float32(col)*metrics.advance, 0))
-		r.texts = append(r.texts, txt)
 		col += runes
 	}
 }
@@ -336,9 +325,9 @@ func (r *diffRowRenderer) appendCellPlain(content string, contentX float32, maxC
 	if utf8.RuneCountInString(content) > maxCols {
 		text = firstRunes(content, maxCols)
 	}
-	txt := r.row.newText(text, r.row.palette.foreground, fyne.TextAlignLeading)
+	txt := r.acquireText()
+	setMonoText(txt, text, r.row.palette.foreground, r.row.textSize, false, false)
 	txt.Move(fyne.NewPos(contentX, 0))
-	r.texts = append(r.texts, txt)
 }
 
 // firstRunes returns the first n runes of s (the whole string when it is
