@@ -48,10 +48,13 @@ func newFileRow(pal palette, basenameOnly bool) *fileRow {
 	return row
 }
 
-// set swaps in a new entry/palette and refreshes.
+// set swaps in a new entry/palette and refreshes. The glyph advance is
+// re-read (from the cached measurement) so a recycled row picks up new
+// monospace metrics after a font change rather than keeping its stale advance.
 func (fr *fileRow) set(entry fileEntry, pal palette) {
 	fr.entry = entry
 	fr.palette = pal
+	fr.advance = measureAdvance(fileRowTextSize)
 	fr.hasData = true
 	fr.Refresh()
 }
@@ -74,13 +77,7 @@ func (fr *fileRow) CreateRenderer() fyne.WidgetRenderer {
 
 // newText builds a monospace canvas text at the row's size.
 func (fr *fileRow) newText(content string, col color.Color, bold bool) *canvas.Text {
-	txt := canvas.NewText(content, col)
-	txt.TextSize = fileRowTextSize
-	style := monoStyle()
-	style.Bold = bold
-	txt.TextStyle = style
-
-	return txt
+	return newMonoText(content, col, fileRowTextSize, bold, fyne.TextAlignLeading)
 }
 
 // monoStyle is the shared monospace text style for file-list rows.

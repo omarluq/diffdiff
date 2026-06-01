@@ -7,8 +7,10 @@ package ui
 
 import (
 	"image/color"
+	"sync"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 
 	"github.com/omarluq/diffdiff/internal/theme"
 )
@@ -57,13 +59,66 @@ func paletteFrom(src *theme.Palette) palette {
 	}
 }
 
-// measureAdvance returns the pixel width of a single monospace glyph at size,
-// the basis for all column math in the diff view.
-func measureAdvance(size float32) float32 {
-	return fyne.MeasureText(monoText, size, monoStyle()).Width
+// newMonoText builds a monospace canvas text at the given size, weight, and
+// alignment. It is the single constructor shared by every monospace run in the
+// UI (diff rows, file-list chrome, path segments) so the text style is defined
+// in exactly one place.
+func newMonoText(content string, col color.Color, size float32, bold bool, align fyne.TextAlign) *canvas.Text {
+	txt := canvas.NewText(content, col)
+	txt.TextSize = size
+	style := monoStyle()
+	style.Bold = bold
+	txt.TextStyle = style
+	txt.Alignment = align
+
+	return txt
 }
 
-// lineHeight is the row height for monospace text at size.
+// monoMetricsCache memoizes monospace glyph measurements by text size. The
+// advance and line height depend only on the size and the registered mono font,
+// so the result is stable until the font changes (see invalidateMonoMetrics).
+// fyne.MeasureText is comparatively expensive and was previously re-run on every
+// row build and file load.
+var (
+	monoMetricsMu sync.Mutex
+	monoAdvance   = map[float32]float32{}
+	monoHeight    = map[float32]float32{}
+)
+
+// measureAdvance returns the pixel width of a single monospace glyph at size,
+// the basis for all column math in the diff view. Results are cached per size.
+func measureAdvance(size float32) float32 {
+	monoMetricsMu.Lock()
+	defer monoMetricsMu.Unlock()
+	if w, ok := monoAdvance[size]; ok {
+		return w
+	}
+	w := fyne.MeasureText(monoText, size, monoStyle()).Width
+	monoAdvance[size] = w
+
+	return w
+}
+
+// lineHeight is the row height for monospace text at size. Results are cached
+// per size.
 func lineHeight(size float32) float32 {
-	return fyne.MeasureText(monoText, size, monoStyle()).Height
+	monoMetricsMu.Lock()
+	defer monoMetricsMu.Unlock()
+	if h, ok := monoHeight[size]; ok {
+		return h
+	}
+	h := fyne.MeasureText(monoText, size, monoStyle()).Height
+	monoHeight[size] = h
+
+	return h
+}
+
+// invalidateMonoMetrics clears the cached glyph measurements. It must be called
+// when the active monospace font changes, since the advance and line height are
+// font-dependent; the next measure re-reads them from the new font.
+func invalidateMonoMetrics() {
+	monoMetricsMu.Lock()
+	defer monoMetricsMu.Unlock()
+	monoAdvance = map[float32]float32{}
+	monoHeight = map[float32]float32{}
 }
