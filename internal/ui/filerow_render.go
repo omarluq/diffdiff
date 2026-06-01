@@ -16,8 +16,8 @@ import (
 // and fuzzy-matched characters can each take their own color and weight. The
 // per-rune objects are rebuilt on each set since the path varies.
 type fileRowRenderer struct {
-	row    *fileRow
-	icon   *canvas.Image
+	row      *fileRow
+	icon     *canvas.Image
 	glyph    *canvas.Text
 	adds     *canvas.Text
 	dels     *canvas.Text
@@ -53,9 +53,9 @@ func (r *fileRowRenderer) Refresh() {
 }
 
 // layoutIcon places the Material file-type icon as a square at the row's left
-// edge, sized to the line height.
+// edge, sized to the line height, picking the light variant on light themes.
 func (r *fileRowRenderer) layoutIcon(filePath string) {
-	r.icon.Resource = icons.For(filePath)
+	r.icon.Resource = icons.For(filePath, r.row.palette.dark)
 	r.icon.Resize(fyne.NewSize(r.height, r.height))
 	r.icon.Move(fyne.NewPos(0, 0))
 	r.icon.Refresh()

@@ -16,11 +16,12 @@ const fileRowTextSize float32 = 13
 // and the path within a row.
 const glyphGap = 1
 
-// fileRow is one row in the FileList: a status glyph, +adds/-dels counts, and
-// the path with basename and fuzzy matches emphasized. It is a recycled list
-// item; set swaps in new content without reallocating the widget. When
-// basenameOnly is set (as a leaf of the nested tree view) only the file's base
-// name is drawn, since the directory is already conveyed by the tree hierarchy.
+// fileRow is one row in the FileList: a Material file-type icon, a status glyph,
+// +adds/-dels counts, and the path with basename and fuzzy matches emphasized.
+// It is a recycled list item; set swaps in new content without reallocating the
+// widget. When basenameOnly is set (as a leaf of the nested tree view) only the
+// file's base name is drawn, since the directory is already conveyed by the tree
+// hierarchy.
 type fileRow struct {
 	widget.BaseWidget
 

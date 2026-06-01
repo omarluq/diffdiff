@@ -1,132 +1,86 @@
-// Package icons maps file paths to Material Icon Theme file-type icons. The
-// icons are SVGs embedded at build time (sourced from the iconify
-// material-icon-theme set) and served as Fyne resources, cached by name so a
-// large file list reuses one resource per type.
+// Package icons maps file paths and directory names to Material Icon Theme
+// icons. The icons are PNGs rasterized from the Material Icon Theme SVGs with
+// resvg: Fyne's own SVG engine mis-renders many Material icons — paths with
+// holes formed by winding fill solid, so e.g. the Go logo and the GitHub
+// octocat collapse into blobs (fyne-io/fyne#5240) — whereas resvg renders them
+// correctly, and Fyne downscales the PNG to row height crisply. Colorful icons
+// can't recolor to an arbitrary theme, but the Material set ships light variants
+// for icons that would wash out on a light background; those are selected when
+// dark is false. The PNGs are embedded via the assets package; the lookup
+// tables live in icons_gen.go.
 package icons
 
 import (
-	"embed"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"fyne.io/fyne/v2"
+
+	"github.com/omarluq/diffdiff/assets"
 )
-
-//go:embed svg/*.svg
-var svgFS embed.FS
-
-// defaultIcon backs any path with no more specific match; it is always embedded.
-const defaultIcon = "document"
 
 var (
 	mu     sync.Mutex
 	byName = make(map[string]fyne.Resource)
 )
 
-// Lookup tables are declared icon-first (one icon name → its triggers) so each
-// icon name appears exactly once; the flat ext→icon and filename→icon maps used
-// at lookup time are derived by inverting these at init.
-
-// filenamesByIcon lists whole filenames (lowercased) that a bare extension would
-// miss.
-var filenamesByIcon = map[string][]string{
-	"docker":   {"dockerfile"},
-	"makefile": {"makefile"},
-	"go-mod":   {"go.mod", "go.sum"},
-	"nodejs":   {"package.json"},
-	"license":  {"license", "license.md"},
-	"readme":   {"readme", "readme.md"},
-	"git":      {".gitignore", ".gitattributes"},
-}
-
-// extsByIcon lists the lowercase extensions (without dot) each icon represents.
-var extsByIcon = map[string][]string{
-	"go":         {"go"},
-	"javascript": {"js", "mjs", "cjs"},
-	"react":      {"jsx", "tsx"},
-	"typescript": {"ts"},
-	"python":     {"py"},
-	"rust":       {"rs"},
-	"java":       {"java"},
-	"vue":        {"vue"},
-	"c":          {"c", "h"},
-	"cpp":        {"cc", "cpp", "cxx", "hpp"},
-	"csharp":     {"cs"},
-	"html":       {"html", "htm"},
-	"css":        {"css"},
-	"sass":       {"scss", "sass"},
-	"json":       {"json"},
-	"yaml":       {"yaml", "yml"},
-	"markdown":   {"md", "markdown"},
-	"console":    {"sh", "bash", "zsh", "fish"},
-	"ruby":       {"rb"},
-	"php":        {"php"},
-	"swift":      {"swift"},
-	"kotlin":     {"kt", "kts"},
-	"database":   {"sql"},
-	"toml":       {"toml"},
-	"xml":        {"xml"},
-	"gradle":     {"gradle"},
-	"image":      {"png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"},
-	"video":      {"mp4", "mov", "avi", "mkv", "webm"},
-	"audio":      {"mp3", "wav", "flac", "ogg"},
-	"pdf":        {"pdf"},
-	"lock":       {"lock"},
-	"zip":        {"zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar"},
-}
-
-var (
-	byFilename = invert(filenamesByIcon)
-	byExt      = invert(extsByIcon)
-)
-
-// invert flattens an icon-first table into a trigger→icon lookup map.
-func invert(table map[string][]string) map[string]string {
-	out := make(map[string]string)
-	for icon, triggers := range table {
-		for _, trigger := range triggers {
-			out[trigger] = icon
-		}
-	}
-
-	return out
-}
-
-// For returns the Material icon resource for the file at path, falling back to a
-// generic document icon. It never returns nil and is safe for concurrent use.
-func For(path string) fyne.Resource {
-	return resource(iconName(path))
-}
-
-// Folder returns the Material folder icon for a directory, choosing the open or
-// closed variant. Like For, it never returns nil and is safe for concurrent use.
-func Folder(open bool) fyne.Resource {
-	if open {
-		return resource("folder-open")
-	}
-
-	return resource("folder")
-}
-
-// iconName resolves a path to an icon name, preferring a whole-filename match
-// over the extension.
-func iconName(path string) string {
+// For returns the Material icon resource for the file at path, preferring a
+// whole-filename match over the extension and falling back to a generic file
+// icon. On light themes (dark false) it uses an icon's light variant when one
+// exists. It never returns nil and is safe for concurrent use.
+func For(path string, dark bool) fyne.Resource {
 	base := strings.ToLower(filepath.Base(path))
-	if name, ok := byFilename[base]; ok {
-		return name
+	if name, ok := pick(nameIcon, nameIconLight, base, dark); ok {
+		return resource(name)
 	}
 
 	ext := strings.TrimPrefix(filepath.Ext(base), ".")
-	if name, ok := byExt[ext]; ok {
-		return name
+	if name, ok := pick(extIcon, extIconLight, ext, dark); ok {
+		return resource(name)
 	}
 
-	return defaultIcon
+	return resource(defaultFileIcon)
 }
 
-// resource loads and memoizes the embedded SVG for an icon name, returning the
-// default icon when the name is unknown.
+// FolderFor returns the Material folder icon for the directory named dir,
+// choosing the open or closed variant (and its light variant on light themes)
+// and falling back to the generic folder when the name is not special-cased. It
+// never returns nil and is concurrent-safe.
+func FolderFor(dir string, open, dark bool) fyne.Resource {
+	key := strings.ToLower(dir)
+	if open {
+		if name, ok := pick(dirIconOpen, dirIconOpenLight, key, dark); ok {
+			return resource(name)
+		}
+
+		return resource(defaultFolderOpenIcon)
+	}
+	if name, ok := pick(dirIcon, dirIconLight, key, dark); ok {
+		return resource(name)
+	}
+
+	return resource(defaultFolderIcon)
+}
+
+// pick resolves key in base, substituting the light-variant icon when dark is
+// false and a light override exists for the key.
+func pick(base, light map[string]string, key string, dark bool) (string, bool) {
+	name, ok := base[key]
+	if !ok {
+		return "", false
+	}
+	if !dark {
+		if variant, ok := light[key]; ok {
+			return variant, true
+		}
+	}
+
+	return name, true
+}
+
+// resource loads and memoizes the embedded PNG for an icon name, returning the
+// default file icon when the name is unknown.
 func resource(name string) fyne.Resource {
 	mu.Lock()
 	defer mu.Unlock()
@@ -135,16 +89,16 @@ func resource(name string) fyne.Resource {
 		return cached
 	}
 
-	data, err := svgFS.ReadFile("svg/" + name + ".svg")
+	data, err := assets.Icons.ReadFile("imgs/icons/" + name + ".png")
 	if err != nil {
-		name = defaultIcon
-		data, err = svgFS.ReadFile("svg/" + defaultIcon + ".svg")
+		name = defaultFileIcon
+		data, err = assets.Icons.ReadFile("imgs/icons/" + defaultFileIcon + ".png")
 		if err != nil {
 			return nil
 		}
 	}
 
-	res := fyne.NewStaticResource(name+".svg", data)
+	res := fyne.NewStaticResource(name+".png", data)
 	byName[name] = res
 
 	return res
