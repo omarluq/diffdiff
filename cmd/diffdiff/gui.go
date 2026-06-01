@@ -11,9 +11,11 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
+	xwidget "fyne.io/x/fyne/widget"
 	"github.com/samber/oops"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/omarluq/diffdiff/assets"
 	"github.com/omarluq/diffdiff/internal/di"
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/git"
@@ -135,12 +137,44 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 // scanShowDelay defers the scanning dialog so a fast scan never flashes it.
 const scanShowDelay = 200 * time.Millisecond
 
-// scanIndicator shows a modal "Scanning repository" dialog with an indeterminate
-// progress bar while a working-tree scan runs. The dialog appears only if the
-// scan outlasts scanShowDelay, so quick scans show nothing.
+// scanIndicator shows a modal "Scanning repository" dialog with a nyan-cat
+// animation while a working-tree scan runs. The dialog appears only if the scan
+// outlasts scanShowDelay, so quick scans show nothing.
 type scanIndicator struct {
 	win  fyne.Window
 	stop chan struct{}
+}
+
+// scanAnim is the moving content of the scanning dialog. The nyan-cat GIF is the
+// primary indicator; ScanBar is a dependency-free fallback used only if the GIF
+// fails to decode. Both animate from their own goroutine (not fyne.Animation), so
+// the no_animations build tag never freezes them.
+type scanAnim interface {
+	fyne.CanvasObject
+	Start()
+	Stop()
+}
+
+// nyanWidth/nyanHeight are the embedded GIF's native pixel dimensions; pinning the
+// indicator to them renders the pixel art crisp at 1:1.
+const (
+	nyanWidth  = 200
+	nyanHeight = 161
+)
+
+// newScanAnim builds the nyan-cat indicator, falling back to ScanBar if the
+// embedded GIF cannot be decoded (it is validated and committed, so the fallback
+// is purely defensive). Call on the UI goroutine.
+func newScanAnim() scanAnim {
+	gif, err := xwidget.NewAnimatedGifFromResource(fyne.NewStaticResource("nyan-cat.gif", assets.Nyan))
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+
+		return ui.NewScanBar()
+	}
+	gif.SetMinSize(fyne.NewSize(nyanWidth, nyanHeight))
+
+	return gif
 }
 
 // startScanIndicator launches the (delayed) scanning dialog and returns a handle;
@@ -165,22 +199,22 @@ func (si *scanIndicator) run() {
 	}
 
 	var (
-		bar   *ui.ScanBar
+		anim  scanAnim
 		shown *dialog.CustomDialog
 		ready = make(chan struct{})
 	)
 	fyne.Do(func() {
-		bar = ui.NewScanBar()
-		shown = dialog.NewCustomWithoutButtons("Scanning repository…", bar, si.win)
+		anim = newScanAnim()
+		shown = dialog.NewCustomWithoutButtons("Scanning repository…", anim, si.win)
 		shown.Show()
-		bar.Start()
+		anim.Start()
 		close(ready)
 	})
 	<-ready
 
 	<-si.stop
 	fyne.Do(func() {
-		bar.Stop()
+		anim.Stop()
 		shown.Hide()
 	})
 }

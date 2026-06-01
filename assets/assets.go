@@ -11,3 +11,9 @@ import "embed"
 //
 //go:embed imgs/icons/*.png
 var Icons embed.FS
+
+// Nyan is the animated nyan-cat GIF shown as the working-tree scan's loading
+// indicator (see cmd/diffdiff's scan dialog).
+//
+//go:embed gifs/nyan-cat-poptart-cat.gif
+var Nyan []byte
