@@ -214,6 +214,18 @@ func (r *diffRowRenderer) hideSurplus() {
 	}
 }
 
+// rebuildSplit lays out the split row from scratch with the pool reset and the
+// surplus hidden. buildSplit is width-dependent and runs from both Refresh (which
+// brackets the pool itself) and Layout (which does not), so the Layout path must
+// reset/hide here or it would stack a fresh set of runs on top of the previous
+// frame's — the overlap that showed up on long split lines.
+func (r *diffRowRenderer) rebuildSplit(width float32) {
+	r.liveTexts = 0
+	r.liveEmph = 0
+	r.buildSplit(width)
+	r.hideSurplus()
+}
+
 // Destroy has no resources to release.
 func (r *diffRowRenderer) Destroy() {}
 
@@ -258,7 +270,7 @@ func (r *diffRowRenderer) Layout(size fyne.Size) {
 	case rowSeparator:
 		r.header.Resize(fyne.NewSize(size.Width-r.row.metrics.padding, r.row.metrics.height))
 	case rowSplit:
-		r.buildSplit(size.Width)
+		r.rebuildSplit(size.Width)
 	case rowLine:
 	}
 }
