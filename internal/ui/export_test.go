@@ -102,6 +102,23 @@ func DiffRowVisibleTextRuns(first, second []string) int {
 	return visible
 }
 
+// PrefixLines re-exports prefixLines for tests.
+func PrefixLines(text string, n int) string {
+	return prefixLines(text, n)
+}
+
+// PrefixExtentLines builds unified line rows from (hlOld, hlIndex) pairs and
+// returns prefixExtent over the first maxRows, so tests can verify the prefix
+// reaches far enough to cover deep hunks.
+func PrefixExtentLines(hlOld []bool, hlIndex []int, maxRows int) (oldN, newN int) {
+	rows := make([]row, len(hlIndex))
+	for i := range hlIndex {
+		rows[i] = row{kind: rowLine, hlOld: hlOld[i], hlIndex: hlIndex[i]}
+	}
+
+	return prefixExtent(rows, maxRows)
+}
+
 // DiffShowsLoading reports whether the diff view is currently showing its
 // "loading" placeholder, letting tests verify the lazy-load placeholder/swap.
 func (c *Content) DiffShowsLoading() bool {
