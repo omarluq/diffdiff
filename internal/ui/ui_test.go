@@ -416,6 +416,19 @@ func TestPrefixExtentCoversFirstRows(t *testing.T) {
 	assert.Equal(t, 9002+64, deepNew, "deep new rows force a deep prefix")
 }
 
+func TestSplitRowRendersIntralineEmphasis(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	// A split cell with an intra-line change segment must paint an emphasis
+	// rectangle behind the changed runes — the per-character tint the unified view
+	// shows. Split rows were missing it (buildSplit never built emphasis).
+	assert.Positive(t, ui.DiffRowSplitVisibleEmphasis(),
+		"split rows render intra-line emphasis over the changed letters")
+}
+
 func TestSplitRowLayoutDoesNotStackRuns(t *testing.T) {
 	t.Parallel()
 

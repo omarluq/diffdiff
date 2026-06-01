@@ -88,14 +88,16 @@ type rowMetrics struct {
 }
 
 // newDiffRow builds an empty row widget; setRow populates it before display.
-func newDiffRow(metrics rowMetrics, pal palette, textSize float32) *diffRow {
+// Diff rows always render at diffTextSize, so it is fixed here rather than passed
+// in (file rows use their own fileRowTextSize via a separate widget).
+func newDiffRow(metrics rowMetrics, pal palette) *diffRow {
 	dr := &diffRow{
 		BaseWidget: widget.BaseWidget{},
 		metrics:    metrics,
 		palette:    pal,
 		data:       row{kind: rowLine, header: "", line: diff.Line{}, tokens: nil, gutterW: 0},
 		hasData:    false,
-		textSize:   textSize,
+		textSize:   diffTextSize,
 	}
 	dr.ExtendBaseWidget(dr)
 
