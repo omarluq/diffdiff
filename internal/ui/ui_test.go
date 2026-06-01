@@ -365,6 +365,24 @@ func TestDiffRowPoolHidesSurplusRuns(t *testing.T) {
 		"surplus pooled text runs are hidden when a sparser line recycles the row")
 }
 
+func TestScanBarSweepStaysInRange(t *testing.T) {
+	t.Parallel()
+
+	bar := ui.NewScanBar()
+
+	low, high := float32(1), float32(0)
+	for range 500 { // far more than one full sweep, so it must bounce
+		ui.ScanBarStep(bar)
+		f := ui.ScanBarFraction(bar)
+		require.GreaterOrEqual(t, f, float32(0), "sweep never goes below 0")
+		require.LessOrEqual(t, f, float32(1), "sweep never goes above 1")
+		low = min(low, f)
+		high = max(high, f)
+	}
+	assert.Less(t, low, float32(0.1), "sweep returns near the start")
+	assert.Greater(t, high, float32(0.9), "sweep reaches near the end")
+}
+
 func TestPrefixLines(t *testing.T) {
 	t.Parallel()
 
