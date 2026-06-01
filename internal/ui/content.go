@@ -365,6 +365,13 @@ func (c *Content) SetFiles(files []*diff.File) {
 	c.diffView.SetFile(nil, c.active)
 }
 
+// SetScanning shows or hides the file panel's "Scanning…" indicator while the
+// working-tree scan runs, so the window can appear immediately and fill in when
+// the scan completes.
+func (c *Content) SetScanning(scanning bool) {
+	c.fileList.SetScanning(scanning)
+}
+
 // SetGitInfo updates the status bar with the active repository's branch and
 // short HEAD hash.
 func (c *Content) SetGitInfo(branch, head string) {

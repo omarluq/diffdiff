@@ -80,27 +80,53 @@ func runGUI(ctx context.Context) error {
 	}
 	content.OnOpenProject(func(path string) { go sess.doOpen(path) })
 
-	working, files, err := repo.ChangedFiles()
-	if err != nil {
-		return oops.In("gui").Code("changed_files").Wrapf(err, "scan working tree")
-	}
-	sess.ws = working // single-threaded here: the sweep and UI callbacks start below
-	sess.remember(repo.Root())
-	details := repo.Details()
-	content.SetRecentProjects(sess.recents.List())
-	content.SetGitInfo(details.Branch, details.Head)
-	content.SetFiles(files)
-
 	window := application.NewWindow(windowTitle(repo.Root()))
 	sess.window = window
 	window.SetContent(root)
 	window.Resize(fyne.NewSize(windowWidth, windowHeight))
 
-	sess.startSweep(ctx, working, files)
+	// Show the window immediately with a scanning indicator; the working-tree
+	// scan (go-git status) can take a moment on a huge worktree, so it runs off
+	// the UI goroutine and fills the file list in when it completes.
+	content.SetScanning(true)
+	go sess.load(ctx, repo)
+
 	stopOnCancel(ctx, application)
 	window.ShowAndRun()
 
 	return nil
+}
+
+// load scans the repository's working tree off the UI goroutine, then publishes
+// the file list, window title, and git info (the caller shows a scanning
+// indicator first; SetFiles clears it) and starts the background diff sweep. The
+// scan dominates startup on huge worktrees, so keeping it off the UI goroutine
+// lets the window appear and stay responsive.
+func (s *session) load(ctx context.Context, repo *git.Repository) {
+	working, files, err := repo.ChangedFiles()
+	if err != nil {
+		fyne.Do(func() { s.content.SetScanning(false) })
+		s.reportError(oops.In("gui").Code("changed_files").Wrapf(err, "scan working tree"))
+
+		return
+	}
+
+	s.mu.Lock()
+	s.repo = repo
+	s.ws = working
+	s.mu.Unlock()
+
+	s.remember(repo.Root())
+	details := repo.Details()
+	recent := s.recents.List()
+	fyne.Do(func() {
+		s.window.SetTitle(windowTitle(repo.Root()))
+		s.content.SetRecentProjects(recent)
+		s.content.SetGitInfo(details.Branch, details.Head)
+		s.content.SetFiles(files)
+	})
+
+	s.startSweep(ctx, working, files)
 }
 
 // startSweep cancels any prior background build and launches a new one off the
@@ -159,42 +185,21 @@ func (s *session) buildOne(ctx context.Context, working *git.WorkingSet, file *d
 	}
 }
 
-// doOpen opens the repository at path, makes it active, and repaints. The open
-// and the cheap status scan run off the UI goroutine; only the repaint, title,
-// and recents updates run on the Fyne main loop. The per-file diffs then stream
-// in via a fresh background sweep, which also cancels the previous repository's
-// sweep.
+// doOpen switches the active repository to the one at path. It shows the scanning
+// indicator immediately, opens the repo, then defers to load for the
+// potentially-slow working-tree scan and repaint. It runs off the UI goroutine.
 func (s *session) doOpen(path string) {
+	fyne.Do(func() { s.content.SetScanning(true) })
+
 	repo, err := git.Open(path)
 	if err != nil {
+		fyne.Do(func() { s.content.SetScanning(false) })
 		s.reportError(oops.In("gui").Code("open_repo").With("path", path).Wrapf(err, "open repository"))
 
 		return
 	}
 
-	working, files, err := repo.ChangedFiles()
-	if err != nil {
-		s.reportError(err)
-
-		return
-	}
-
-	s.mu.Lock()
-	s.repo = repo
-	s.ws = working
-	s.mu.Unlock()
-
-	s.remember(repo.Root())
-	details := repo.Details()
-	recent := s.recents.List()
-	fyne.Do(func() {
-		s.window.SetTitle(windowTitle(repo.Root()))
-		s.content.SetRecentProjects(recent)
-		s.content.SetGitInfo(details.Branch, details.Head)
-		s.content.SetFiles(files)
-	})
-
-	s.startSweep(context.Background(), working, files)
+	s.load(context.Background(), repo)
 }
 
 // remember records a project path in the recent list, logging persistence

@@ -365,6 +365,24 @@ func TestDiffRowPoolHidesSurplusRuns(t *testing.T) {
 		"surplus pooled text runs are hidden when a sparser line recycles the row")
 }
 
+func TestContentScanningIndicator(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	reg := theme.NewRegistry()
+	hl := highlight.New(0)
+
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
+
+	content.SetScanning(true)
+	assert.True(t, content.ScanningShown(), "the scanning indicator shows while a scan runs")
+
+	content.SetFiles(sampleFiles())
+	assert.False(t, content.ScanningShown(), "SetFiles clears the scanning indicator")
+}
+
 func TestPrefixLines(t *testing.T) {
 	t.Parallel()
 
