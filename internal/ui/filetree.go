@@ -177,6 +177,22 @@ func (l *FileList) SetFiles(files []*diff.File) {
 	l.SetFilter("")
 }
 
+// RefreshFile repaints just the row for file in place — its streamed counts and
+// the blob-corrected status glyph — without disturbing the selection or scroll
+// position. Unlike SetFilter's full refresh, RefreshItem re-runs only the one
+// matching row's update, which is what keeps background-loaded results from
+// flickering or jumping the list. The tree leaf is keyed by the file's path.
+func (l *FileList) RefreshFile(file *diff.File) {
+	for index := range l.visible {
+		if l.visible[index].file == file {
+			l.list.RefreshItem(index)
+
+			break
+		}
+	}
+	l.tree.RefreshItem(file.Path)
+}
+
 // setPalette restyles both views to the given palette and refreshes them.
 func (l *FileList) setPalette(pal palette) {
 	l.palette = pal
@@ -256,7 +272,14 @@ func statusColor(pal palette, status diff.Status) color.NRGBA {
 	}
 }
 
-// countsLabels formats the +adds and -dels labels for a file.
+// countsLabels formats the +adds and -dels labels for a file. While the file's
+// diff is still being built (counts not yet known) it returns blanks, so the row
+// shows its status glyph immediately without a misleading "+0/-0"; the counts
+// appear once the file streams in.
 func countsLabels(file *diff.File) (adds, dels string) {
+	if !file.HasCounts() {
+		return "", ""
+	}
+
 	return "+" + strconv.Itoa(file.Added), "-" + strconv.Itoa(file.Deleted)
 }

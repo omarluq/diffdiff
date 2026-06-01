@@ -43,8 +43,9 @@ func sampleFiles() []*diff.File {
 	}
 }
 
-// modifiedFile builds a modified diff.File with a single trivial hunk so it has
-// renderable content.
+// modifiedFile builds a loaded, modified diff.File with a single trivial hunk so
+// it has renderable content. It is StateLoaded since it represents a fully-built
+// diff (tests exercising the unloaded path set the state explicitly).
 func modifiedFile(path string, added, deleted int) *diff.File {
 	return &diff.File{
 		Path:     path,
@@ -60,6 +61,7 @@ func modifiedFile(path string, added, deleted int) *diff.File {
 		}},
 		Added:   added,
 		Deleted: deleted,
+		State:   diff.StateLoaded,
 	}
 }
 
@@ -283,6 +285,81 @@ func TestContentTreeToggleSwitchesView(t *testing.T) {
 
 	assert.True(t, content.TreeToggle(), "first toggle enables the nested tree")
 	assert.False(t, content.TreeToggle(), "second toggle restores the flat list")
+}
+
+func TestDiffViewShowsLoadingThenRendersOnReady(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	reg := theme.NewRegistry()
+	hl := highlight.New(0)
+
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
+
+	// A file whose status is known but whose diff has not been built yet.
+	file := modifiedFile("pkg/x.go", 2, 1)
+	file.State = diff.StateUnloaded
+	content.SetFiles([]*diff.File{file})
+
+	assert.True(t, content.DiffShowsLoading(),
+		"an unloaded selected file shows the loading placeholder")
+	assert.Zero(t, content.DiffRowCount(), "no rows are flattened while loading")
+
+	// Simulate the background build completing for the selected file.
+	file.State = diff.StateLoaded
+	content.FileReady(file)
+
+	assert.False(t, content.DiffShowsLoading(),
+		"the loading placeholder hides once the file is ready")
+	assert.Positive(t, content.DiffRowCount(), "the file's rows render after FileReady")
+}
+
+func TestSetThemePreservesDiffRows(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	reg := theme.NewRegistry()
+	hl := highlight.New(0)
+
+	_, content := ui.NewContent(reg, theme.NewFontRegistry(), hl)
+	content.SetFiles([]*diff.File{modifiedFile("pkg/x.go", 1, 1)})
+
+	before := content.DiffRowCount()
+	require.Positive(t, before, "a loaded file renders rows")
+
+	other := ""
+	for _, name := range reg.Names() {
+		if name != content.ActiveTheme().Name() {
+			other = name
+
+			break
+		}
+	}
+	if other == "" {
+		t.Skip("registry has only one theme")
+	}
+
+	content.SetTheme(other)
+	assert.Equal(t, before, content.DiffRowCount(),
+		"a theme switch recolors in place without dropping or re-flattening rows")
+}
+
+func TestTreeLeavesKeyedByFullPath(t *testing.T) {
+	t.Parallel()
+
+	files := []*diff.File{
+		modifiedFile("pkg/codec/decode.go", 1, 0),
+		modifiedFile("main.go", 1, 0),
+	}
+	assert.Equal(t,
+		[]string{"main.go", "pkg/codec/decode.go"},
+		ui.TreeLeafPaths(files),
+		"tree leaves are keyed by full path, the invariant RefreshFile relies on",
+	)
 }
 
 func TestFlattenProducesSeparatorPerHunkPlusLines(t *testing.T) {
