@@ -148,11 +148,9 @@ func (c *Content) showProjectMenu() {
 		recent := path
 		button := widget.NewButton(displayPath(recent), func() { open(recent) })
 		button.Alignment = widget.ButtonAlignLeading
+		button.Importance = widget.LowImportance
 		if index == 0 { // the most-recent entry is the currently open project
 			button.Icon = fynetheme.ConfirmIcon()
-			button.Importance = widget.HighImportance
-		} else {
-			button.Importance = widget.LowImportance
 		}
 		items = append(items, button)
 	}
@@ -165,7 +163,7 @@ func (c *Content) showProjectMenu() {
 }
 
 // showOptionsMenu pops up a scrollable list of options beneath anchor. The
-// active option is checked and highlighted; choosing one invokes onPick and
+// active option carries a leading check mark; choosing one invokes onPick and
 // dismisses the popup.
 func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, active string, onPick func(string)) {
 	canvas := fyne.CurrentApp().Driver().CanvasForObject(anchor)
@@ -183,12 +181,10 @@ func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, ac
 			onPick(choice)
 		})
 		button.Alignment = widget.ButtonAlignLeading
+		button.Importance = widget.LowImportance
 		if choice == active {
 			activeIndex = index
 			button.Icon = fynetheme.ConfirmIcon()
-			button.Importance = widget.HighImportance
-		} else {
-			button.Importance = widget.LowImportance
 		}
 		items = append(items, button)
 	}
