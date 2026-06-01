@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	charm.land/fang/v2 v2.0.1
 	fyne.io/fyne/v2 v2.7.4
+	fyne.io/x/fyne v0.0.0-20260404122735-cbbdf562353e
 	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/go-git/go-billy/v5 v5.9.0
