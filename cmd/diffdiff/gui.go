@@ -49,8 +49,12 @@ type session struct {
 	cancel context.CancelFunc
 }
 
-// runGUI opens the diff viewer window for the current directory's repository and
-// blocks until it is closed or ctx is canceled.
+// runGUI opens the diff viewer window and blocks until it is closed or ctx is
+// canceled. It opens the current directory when it is a git repository (you ran
+// diffdiff from inside a checkout), otherwise the most recent project that still
+// opens (e.g. launched from the desktop menu, where the working directory is
+// home), otherwise it shows an empty window with the project picker so you can
+// choose one — so a menu launch never fails for lack of a repo.
 func runGUI(ctx context.Context) error {
 	const repoPath = "."
 	container, err := di.NewContainer(cfgFile, repoPath)
@@ -63,10 +67,8 @@ func runGUI(ctx context.Context) error {
 		}
 	}()
 
-	repo, err := di.Invoke[*git.Repository](container)
-	if err != nil {
-		return oops.In("gui").Code("open_repo").With("path", repoPath).Wrapf(err, "open repository")
-	}
+	store := di.MustInvoke[*recents.Store](container)
+	repo := startupRepo(container, store)
 
 	application := app.NewWithID(appID)
 	application.SetIcon(fyne.NewStaticResource("diffdiff.png", assets.Mascot))
@@ -79,7 +81,7 @@ func runGUI(ctx context.Context) error {
 	sess := &session{
 		window:  nil,
 		content: content,
-		recents: di.MustInvoke[*recents.Store](container),
+		recents: store,
 		mu:      sync.Mutex{},
 		repo:    repo,
 		ws:      nil,
@@ -87,18 +89,50 @@ func runGUI(ctx context.Context) error {
 	}
 	content.OnOpenProject(func(path string) { go sess.doOpen(path) })
 
-	window := application.NewWindow(windowTitle(repo.Root()))
+	title := "diffdiff"
+	if repo != nil {
+		title = windowTitle(repo.Root())
+	}
+	window := application.NewWindow(title)
 	sess.window = window
 	window.SetContent(root)
 	window.Resize(fyne.NewSize(windowWidth, windowHeight))
 
-	// Show the window immediately; the working-tree scan (go-git status) can take
-	// a moment on a huge worktree, so load runs it off the UI goroutine behind a
-	// progress dialog and fills the file list in when it completes.
-	go sess.load(ctx, repo)
+	// Seed the project picker with recents so it is usable immediately, before the
+	// first scan finishes and when no project is open at all.
+	content.SetRecentProjects(store.List())
+
+	if repo != nil {
+		// Show the window immediately; the working-tree scan (go-git status) can take
+		// a moment on a huge worktree, so load runs it off the UI goroutine behind the
+		// scan card and fills the file list in when it completes.
+		go sess.load(ctx, repo)
+	} else {
+		// No project resolved: present a defined empty state until the user opens one.
+		content.SetFiles(nil)
+	}
 
 	stopOnCancel(ctx, application)
 	window.ShowAndRun()
+
+	return nil
+}
+
+// startupRepo resolves the repository to open on launch: the current directory
+// when it is a repository (an explicit run from inside a checkout), else the most
+// recent project that still opens, else nil — in which case the window opens
+// empty and the user picks a project. git.Open failures are expected here (a
+// non-repo working directory, a recent that was moved or deleted), so they are
+// skipped rather than surfaced.
+func startupRepo(container *di.Container, store *recents.Store) *git.Repository {
+	if repo, err := di.Invoke[*git.Repository](container); err == nil {
+		return repo
+	}
+	for _, path := range store.List() {
+		if repo, err := git.Open(path); err == nil {
+			return repo
+		}
+	}
 
 	return nil
 }
