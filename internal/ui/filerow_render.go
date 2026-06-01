@@ -32,6 +32,9 @@ type fileRowRenderer struct {
 	// skip re-decoding/re-scaling the PNG when a row repaint (e.g. streamed counts)
 	// leaves the icon unchanged.
 	iconKey string
+	// objs caches the Objects() slice, rebuilt only when the segment-pool count
+	// changes, so the render walk and mouse hit-tests don't allocate per call.
+	objs []fyne.CanvasObject
 }
 
 // Destroy has nothing to release.
@@ -200,13 +203,20 @@ func runeColor(pal palette, inBasename, matched bool) color.NRGBA {
 	return pal.muted
 }
 
-// Objects returns the row's drawables in paint order.
+// Objects returns the row's drawables in paint order. The slice is cached and
+// rebuilt only when the segment pool grows, so the render walk and mouse
+// hit-tests don't allocate it on every call.
 func (r *fileRowRenderer) Objects() []fyne.CanvasObject {
-	objs := make([]fyne.CanvasObject, 0, 4+len(r.segments))
-	objs = append(objs, r.icon, r.glyph, r.adds, r.dels)
-	for _, txt := range r.segments {
-		objs = append(objs, txt)
+	want := 4 + len(r.segments)
+	if len(r.objs) == want {
+		return r.objs
 	}
 
-	return objs
+	r.objs = make([]fyne.CanvasObject, 0, want)
+	r.objs = append(r.objs, r.icon, r.glyph, r.adds, r.dels)
+	for _, txt := range r.segments {
+		r.objs = append(r.objs, txt)
+	}
+
+	return r.objs
 }

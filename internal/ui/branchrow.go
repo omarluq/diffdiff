@@ -76,6 +76,9 @@ type branchRowRenderer struct {
 	// iconKey is the resource name of the folder icon currently shown, so Refresh
 	// skips re-decoding/re-scaling the PNG when the icon is unchanged.
 	iconKey string
+	// objs caches the Objects() slice (a fixed icon+name pair) so the render walk
+	// and mouse hit-tests don't reallocate it per call.
+	objs []fyne.CanvasObject
 }
 
 // Destroy has nothing to release.
@@ -119,7 +122,12 @@ func (r *branchRowRenderer) Refresh() {
 	canvas.Refresh(r.row)
 }
 
-// Objects returns the node's drawables in paint order.
+// Objects returns the node's drawables in paint order. The fixed icon+name pair
+// is cached so repeated render-walk and hit-test calls don't reallocate it.
 func (r *branchRowRenderer) Objects() []fyne.CanvasObject {
-	return []fyne.CanvasObject{r.icon, r.name}
+	if r.objs == nil {
+		r.objs = []fyne.CanvasObject{r.icon, r.name}
+	}
+
+	return r.objs
 }
