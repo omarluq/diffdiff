@@ -167,6 +167,10 @@ type diffRowRenderer struct {
 	liveEmph   int
 	liveTexts  int
 	width      float32
+	// objs caches the Objects() slice. The render walk and every mouse hit-test
+	// call Objects(); rebuilding the slice only when the pooled object count
+	// changes avoids a per-walk allocation (the top render-path allocator).
+	objs []fyne.CanvasObject
 }
 
 // acquireText returns the next pooled text run, growing the pool if needed and
@@ -279,15 +283,23 @@ func (r *diffRowRenderer) Layout(size fyne.Size) {
 // plus the two split columns and their divider), intra-line emphasis, gutter/sign
 // chrome, then the syntax text runs on top.
 func (r *diffRowRenderer) Objects() []fyne.CanvasObject {
-	objs := make([]fyne.CanvasObject, 0, 7+len(r.emphasis)+len(r.texts))
-	objs = append(objs, r.background, r.leftBg, r.rightBg, r.divider)
-	for _, emph := range r.emphasis {
-		objs = append(objs, emph)
-	}
-	objs = append(objs, r.oldNum, r.newNum, r.sign, r.header)
-	for _, txt := range r.texts {
-		objs = append(objs, txt)
+	// 8 fixed cells (4 backgrounds/divider + 4 gutter/sign/header) plus the two
+	// pools. The pools only grow, so the cached slice is valid until the count
+	// changes; rebuild only then.
+	want := 8 + len(r.emphasis) + len(r.texts)
+	if len(r.objs) == want {
+		return r.objs
 	}
 
-	return objs
+	r.objs = make([]fyne.CanvasObject, 0, want)
+	r.objs = append(r.objs, r.background, r.leftBg, r.rightBg, r.divider)
+	for _, emph := range r.emphasis {
+		r.objs = append(r.objs, emph)
+	}
+	r.objs = append(r.objs, r.oldNum, r.newNum, r.sign, r.header)
+	for _, txt := range r.texts {
+		r.objs = append(r.objs, txt)
+	}
+
+	return r.objs
 }
