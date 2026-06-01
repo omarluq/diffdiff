@@ -30,6 +30,14 @@ jobs:
       - name: Setup Task
         uses: arduino/setup-task@v2
 
+      - name: Install system dependencies
+        # Fyne links OpenGL and X11/Wayland via cgo, so these headers are needed
+        # to compile the GUI — without them golangci-lint's typecheck and the
+        # test build fail (gl.pc not found).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev wayland-protocols
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
@@ -46,13 +54,6 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     needs: test
-    strategy:
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -63,18 +64,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+      - name: Setup Task
+        uses: arduino/setup-task@v2
+
+      - name: Install system dependencies
         run: |
-          mkdir -p bin
-          ext=''
-          if [ "$GOOS" = 'windows' ]; then ext='.exe'; fi
-          go build -v -o bin/diffdiff-${{ matrix.goos }}-${{ matrix.goarch }}${ext} ./cmd/diffdiff
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev wayland-protocols
+
+      - name: Build
+        # Native build only: the Fyne GUI links OpenGL via cgo, so plain
+        # cross-compilation does not work. Cross-platform release binaries are
+        # built separately (GoReleaser) with the appropriate cgo toolchains.
+        run: task build
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: diffdiff-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: diffdiff-linux-amd64
           path: bin/
