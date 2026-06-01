@@ -365,6 +365,39 @@ func TestDiffRowPoolHidesSurplusRuns(t *testing.T) {
 		"surplus pooled text runs are hidden when a sparser line recycles the row")
 }
 
+func TestPrefixLines(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "a\nb\n", ui.PrefixLines("a\nb\nc\nd", 2),
+		"returns the first n lines through the n-th newline")
+	assert.Equal(t, "", ui.PrefixLines("a\nb", 0), "n<=0 yields empty")
+	assert.Equal(t, "a\nb", ui.PrefixLines("a\nb", 5),
+		"fewer than n lines returns the whole string")
+}
+
+func TestPrefixExtentCoversFirstRows(t *testing.T) {
+	t.Parallel()
+
+	// A top-of-file hunk: low indices, so the prefix stays small (+buffer).
+	oldN, newN := ui.PrefixExtentLines(
+		[]bool{true, false, true, false},
+		[]int{0, 0, 1, 1},
+		400,
+	)
+	assert.Equal(t, 2+64, oldN, "old prefix reaches the deepest old row +buffer")
+	assert.Equal(t, 2+64, newN, "new prefix reaches the deepest new row +buffer")
+
+	// A deep hunk: the first rows carry large indices, so the prefix must extend
+	// to reach them (chroma must lex from line 0 down to those lines).
+	deepOld, deepNew := ui.PrefixExtentLines(
+		[]bool{false, false},
+		[]int{9000, 9001},
+		400,
+	)
+	assert.Equal(t, 0, deepOld, "no old rows -> no old prefix")
+	assert.Equal(t, 9002+64, deepNew, "deep new rows force a deep prefix")
+}
+
 func TestSplitRowLayoutDoesNotStackRuns(t *testing.T) {
 	t.Parallel()
 
