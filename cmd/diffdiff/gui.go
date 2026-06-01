@@ -10,7 +10,10 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
+	fynecontainer "fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	fynetheme "fyne.io/fyne/v2/theme"
 	xwidget "fyne.io/x/fyne/widget"
 	"github.com/samber/oops"
 	"golang.org/x/sync/errgroup"
@@ -137,9 +140,11 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 // scanShowDelay defers the scanning dialog so a fast scan never flashes it.
 const scanShowDelay = 200 * time.Millisecond
 
-// scanIndicator shows a modal "Scanning repository" dialog with a nyan-cat
-// animation while a working-tree scan runs. The dialog appears only if the scan
-// outlasts scanShowDelay, so quick scans show nothing.
+// scanIndicator floats a nyan-cat animation over the window while a working-tree
+// scan runs. It appears only if the scan outlasts scanShowDelay, so quick scans
+// show nothing. It is a borderless canvas overlay rather than a dialog: a dialog
+// paints its card with ColorNameOverlayBackground (our Surface shade), which the
+// transparent GIF would reveal as a box that clashes with the window background.
 type scanIndicator struct {
 	win  fyne.Window
 	stop chan struct{}
@@ -199,14 +204,14 @@ func (si *scanIndicator) run() {
 	}
 
 	var (
-		anim  scanAnim
-		shown *dialog.CustomDialog
-		ready = make(chan struct{})
+		anim    scanAnim
+		overlay fyne.CanvasObject
+		ready   = make(chan struct{})
 	)
 	fyne.Do(func() {
 		anim = newScanAnim()
-		shown = dialog.NewCustomWithoutButtons("Scanning repository…", anim, si.win)
-		shown.Show()
+		overlay = scanOverlay(anim)
+		si.win.Canvas().Overlays().Add(overlay)
 		anim.Start()
 		close(ready)
 	})
@@ -215,8 +220,22 @@ func (si *scanIndicator) run() {
 	<-si.stop
 	fyne.Do(func() {
 		anim.Stop()
-		shown.Hide()
+		si.win.Canvas().Overlays().Remove(overlay)
 	})
+}
+
+// scanOverlay centers the scan animation on a solid rectangle painted in the
+// window's own background color, so the transparent GIF sits on one uniform tone
+// (no dialog card, no modal scrim) that matches the rest of the window. The
+// opaque backing also hides the cleared panels behind a clean splash.
+func scanOverlay(anim scanAnim) fyne.CanvasObject {
+	settings := fyne.CurrentApp().Settings()
+	bg := settings.Theme().Color(fynetheme.ColorNameBackground, settings.ThemeVariant())
+
+	return fynecontainer.NewStack(
+		canvas.NewRectangle(bg),
+		fynecontainer.NewCenter(anim),
+	)
 }
 
 // startSweep cancels any prior background build and launches a new one off the
