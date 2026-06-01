@@ -11,7 +11,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
 	"github.com/samber/oops"
 	"golang.org/x/sync/errgroup"
 
@@ -133,20 +132,11 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 	s.startSweep(ctx, working, files)
 }
 
-const (
-	// scanShowDelay defers the scanning dialog so a fast scan never flashes it.
-	scanShowDelay = 200 * time.Millisecond
-	// scanSpinnerInterval is how often the spinner advances. Animations are
-	// disabled in this build (no_animations), so the spinner is stepped manually
-	// via Refresh rather than a fyne.Animation.
-	scanSpinnerInterval = 120 * time.Millisecond
-)
+// scanShowDelay defers the scanning dialog so a fast scan never flashes it.
+const scanShowDelay = 200 * time.Millisecond
 
-// scanSpinnerFrames are the manual spinner glyphs cycled while scanning.
-var scanSpinnerFrames = []string{"|", "/", "-", "\\"}
-
-// scanIndicator shows a modal "Scanning repository" dialog with a manually
-// stepped spinner while a working-tree scan runs. The dialog appears only if the
+// scanIndicator shows a modal "Scanning repository" dialog with an indeterminate
+// progress bar while a working-tree scan runs. The dialog appears only if the
 // scan outlasts scanShowDelay, so quick scans show nothing.
 type scanIndicator struct {
 	win  fyne.Window
@@ -175,38 +165,24 @@ func (si *scanIndicator) run() {
 	}
 
 	var (
-		label *widget.Label
+		bar   *ui.ScanBar
 		shown *dialog.CustomDialog
 		ready = make(chan struct{})
 	)
 	fyne.Do(func() {
-		label = widget.NewLabelWithStyle(scanLabel(0), fyne.TextAlignCenter, fyne.TextStyle{Monospace: true})
-		shown = dialog.NewCustomWithoutButtons("", label, si.win)
+		bar = ui.NewScanBar()
+		shown = dialog.NewCustomWithoutButtons("Scanning repository…", bar, si.win)
 		shown.Show()
+		bar.Start()
 		close(ready)
 	})
 	<-ready
 
-	ticker := time.NewTicker(scanSpinnerInterval)
-	defer ticker.Stop()
-	frame := 0
-	for {
-		select {
-		case <-si.stop:
-			fyne.Do(shown.Hide)
-
-			return
-		case <-ticker.C:
-			frame++
-			text := scanLabel(frame)
-			fyne.Do(func() { label.SetText(text) })
-		}
-	}
-}
-
-// scanLabel renders the spinner frame as the dialog's centered message.
-func scanLabel(frame int) string {
-	return "Scanning repository  " + scanSpinnerFrames[frame%len(scanSpinnerFrames)]
+	<-si.stop
+	fyne.Do(func() {
+		bar.Stop()
+		shown.Hide()
+	})
 }
 
 // startSweep cancels any prior background build and launches a new one off the

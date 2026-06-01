@@ -102,6 +102,11 @@ func DiffRowVisibleTextRuns(first, second []string) int {
 	return visible
 }
 
+// ScanBarStep / ScanBarFraction expose the indeterminate bar's internal sweep
+// so tests can verify it bounces and stays in range without rendering.
+func ScanBarStep(b *ScanBar)            { b.advance() }
+func ScanBarFraction(b *ScanBar) float32 { return b.fraction() }
+
 // PrefixLines re-exports prefixLines for tests.
 func PrefixLines(text string, n int) string {
 	return prefixLines(text, n)
