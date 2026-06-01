@@ -14,38 +14,37 @@ import (
 const (
 	scanBarMinWidth = 260
 	scanBarHeight   = 8
-	// scanBarCap is the fill ceiling the bar eases toward while the scan runs;
-	// since the scan reports no real progress, the fill is a decelerating
-	// time-estimate that never reaches the end until Complete snaps it to 1.
-	scanBarCap = 0.9
-	// scanBarEase is the fraction of the remaining distance covered each tick, so
-	// the bar fills quickly then slows as it approaches the cap.
-	scanBarEase = 0.04
-	scanBarTick = 40 * time.Millisecond
+	// scanBarFillFrac is the moving segment's width as a fraction of the track.
+	scanBarFillFrac = 0.32
+	// scanBarStep advances the sweep each tick; scanBarTick is the frame interval.
+	scanBarStep = 0.02
+	scanBarTick = 16 * time.Millisecond
 )
 
-// ScanBar is a determinate progress bar for the working-tree scan. The scan has
-// no real progress to report, so the fill eases toward scanBarCap on a ticker
-// (fast then slow, like a browser loader) and Complete snaps it to 100% when the
-// scan finishes. It animates via Refresh rather than fyne.Animation, so it works
-// under the no_animations build tag.
+// ScanBar is an indeterminate progress bar: a fill segment sweeps back and forth
+// along a track. It is deliberately indeterminate because the working-tree scan
+// (go-git status) reports no progress, so there is no honest percentage to show.
+// The build disables fyne.Animation (no_animations), which would freeze
+// ProgressBarInfinite, so this animates itself with a ticker and Refresh — a
+// plain repaint, unaffected by the tag. Start begins the motion; Stop ends it.
 type ScanBar struct {
 	widget.BaseWidget
 
-	mu   sync.Mutex
-	pos  float32
-	stop chan struct{}
+	mu      sync.Mutex
+	pos     float32
+	forward bool
+	stop    chan struct{}
 }
 
-// NewScanBar builds a stopped, empty progress bar.
+// NewScanBar builds a stopped indeterminate bar.
 func NewScanBar() *ScanBar {
-	bar := &ScanBar{}
+	bar := &ScanBar{forward: true}
 	bar.ExtendBaseWidget(bar)
 
 	return bar
 }
 
-// Start begins filling on a background ticker. Call it on the UI goroutine.
+// Start begins the sweep on a background ticker. Call it on the UI goroutine.
 func (b *ScanBar) Start() {
 	stop := make(chan struct{})
 	b.stop = stop
@@ -64,26 +63,33 @@ func (b *ScanBar) Start() {
 	}()
 }
 
-// Complete stops the fill and snaps the bar to 100%. Call it on the UI goroutine.
-func (b *ScanBar) Complete() {
+// Stop ends the sweep. Call it on the UI goroutine.
+func (b *ScanBar) Stop() {
 	if b.stop != nil {
 		close(b.stop)
 		b.stop = nil
 	}
-	b.mu.Lock()
-	b.pos = 1
-	b.mu.Unlock()
-	b.Refresh()
 }
 
-// advance eases the fill toward the cap by a fraction of the remaining distance.
+// advance steps the sweep position, bouncing at each end.
 func (b *ScanBar) advance() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.pos += (scanBarCap - b.pos) * scanBarEase
+	if b.forward {
+		b.pos += scanBarStep
+		if b.pos >= 1 {
+			b.pos, b.forward = 1, false
+		}
+
+		return
+	}
+	b.pos -= scanBarStep
+	if b.pos <= 0 {
+		b.pos, b.forward = 0, true
+	}
 }
 
-// fraction is the current fill in [0,1].
+// fraction is the current sweep position in [0,1].
 func (b *ScanBar) fraction() float32 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -91,7 +97,7 @@ func (b *ScanBar) fraction() float32 {
 	return b.pos
 }
 
-// CreateRenderer wires the track and the left-anchored fill.
+// CreateRenderer wires the track and the sweeping fill.
 func (b *ScanBar) CreateRenderer() fyne.WidgetRenderer {
 	track := canvas.NewRectangle(color.Transparent)
 	track.CornerRadius = scanBarHeight / 2
@@ -101,8 +107,8 @@ func (b *ScanBar) CreateRenderer() fyne.WidgetRenderer {
 	return &scanBarRenderer{bar: b, track: track, fill: fill}
 }
 
-// scanBarRenderer paints the track and a fill that grows from the left, pulling
-// colors from the active Fyne theme so the bar matches the app palette.
+// scanBarRenderer paints the track and the sweeping fill, pulling colors from the
+// active Fyne theme so the bar matches the app palette.
 type scanBarRenderer struct {
 	bar   *ScanBar
 	track *canvas.Rectangle
@@ -122,8 +128,10 @@ func (r *scanBarRenderer) Layout(size fyne.Size) {
 	r.track.Resize(size)
 	r.track.Move(fyne.NewPos(0, 0))
 
-	r.fill.Resize(fyne.NewSize(size.Width*r.bar.fraction(), size.Height))
-	r.fill.Move(fyne.NewPos(0, 0))
+	fillWidth := size.Width * scanBarFillFrac
+	x := r.bar.fraction() * (size.Width - fillWidth)
+	r.fill.Resize(fyne.NewSize(fillWidth, size.Height))
+	r.fill.Move(fyne.NewPos(x, 0))
 }
 
 func (r *scanBarRenderer) Refresh() {
