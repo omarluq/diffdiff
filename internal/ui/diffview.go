@@ -87,7 +87,7 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 func (v *DiffView) buildList() {
 	v.list = widget.NewList(
 		func() int { return len(v.rows) },
-		func() fyne.CanvasObject { return newDiffRow(v.metrics, v.palette, diffTextSize) },
+		func() fyne.CanvasObject { return newDiffRow(v.metrics, v.palette) },
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			dr, ok := obj.(*diffRow)
 			if !ok || id < 0 || id >= len(v.rows) {

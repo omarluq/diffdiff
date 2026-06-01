@@ -234,9 +234,43 @@ func (r *diffRowRenderer) buildSplit(width float32) {
 
 	leftContentX := metrics.padding + metrics.gutterW + metrics.advance
 	rightContentX := rightGutterX + metrics.gutterW + metrics.advance
+	leftCols := columnsFor(mid, leftContentX, metrics)
+	rightCols := columnsFor(width, rightContentX, metrics)
 
-	r.appendCellTexts(left, leftContentX, columnsFor(mid, leftContentX, metrics))
-	r.appendCellTexts(right, rightContentX, columnsFor(width, rightContentX, metrics))
+	// Emphasis before text: Objects() paints all emphasis rects beneath all text
+	// runs, so the intra-line change tint sits behind the glyphs in each column —
+	// matching the unified view, which split rows previously omitted entirely.
+	r.appendCellEmphasis(left, leftContentX, leftCols)
+	r.appendCellEmphasis(right, rightContentX, rightCols)
+	r.appendCellTexts(left, leftContentX, leftCols)
+	r.appendCellTexts(right, rightContentX, rightCols)
+}
+
+// appendCellEmphasis lays an emphasis rectangle behind each intra-line change run
+// of a split cell — the per-character change tint — offset to the column's
+// contentX and clipped at maxCols so it never crosses the divider. It mirrors the
+// unified view's buildEmphasis, which the split path previously lacked.
+func (r *diffRowRenderer) appendCellEmphasis(cell *splitCell, contentX float32, maxCols int) {
+	if !cell.present || maxCols <= 0 {
+		return
+	}
+	emphColor := emphasisColor(r.row.palette, cell.line.Kind)
+	if len(cell.line.Segments) == 0 || emphColor == (color.NRGBA{}) {
+		return
+	}
+
+	metrics := r.row.metrics
+	col := 0
+	for _, seg := range cell.line.Segments {
+		runes := utf8.RuneCountInString(seg.Text)
+		if seg.Intraline && runes > 0 && col < maxCols {
+			rect := r.acquireEmph()
+			rect.FillColor = emphColor
+			rect.Move(fyne.NewPos(contentX+float32(col)*metrics.advance, 0))
+			rect.Resize(fyne.NewSize(float32(min(runes, maxCols-col))*metrics.advance, metrics.height))
+		}
+		col += runes
+	}
 }
 
 // columnsFor reports how many monospace glyphs fit between contentX and the

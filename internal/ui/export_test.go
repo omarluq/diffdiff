@@ -28,7 +28,7 @@ func testRunTokens(runs []string) []highlight.Token {
 // (the overlap seen on long split lines). The expected count is len(left)+len(right).
 func DiffRowSplitVisibleAfterLayout(leftRuns, rightRuns []string, width float32) int {
 	metrics := rowMetrics{advance: 8, height: 16, padding: 8, gutterW: 48, signW: 8, contentX: 112}
-	dr := newDiffRow(metrics, palette{}, diffTextSize)
+	dr := newDiffRow(metrics, palette{})
 	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
 	if !ok {
 		return -1
@@ -65,6 +65,56 @@ func DiffRowSplitVisibleAfterLayout(leftRuns, rightRuns []string, width float32)
 	return visible
 }
 
+// DiffRowSplitVisibleEmphasis builds a split row whose left cell carries an
+// intra-line change segment, renders it through the Refresh+Layout path, and
+// returns how many emphasis rectangles are visible. It guards the regression
+// where split rows drew no intra-line emphasis at all — the per-character change
+// tint the unified view shows over the specific changed letters.
+func DiffRowSplitVisibleEmphasis() int {
+	metrics := rowMetrics{advance: 8, height: 16, padding: 8, gutterW: 48, signW: 8, contentX: 112}
+	dr := newDiffRow(metrics, palette{delEmph: color.NRGBA{R: 0xff, G: 0x00, B: 0x00, A: 0x80}})
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return -1
+	}
+
+	dr.data = row{
+		kind: rowSplit,
+		left: splitCell{
+			present: true,
+			line: diff.Line{
+				Kind: diff.LineDeleted, OldNum: 1, NewNum: 0, Content: "foobar",
+				Segments: []diff.Segment{
+					{Text: "foo", Intraline: false},
+					{Text: "bar", Intraline: true},
+				},
+			},
+			tokens:  nil,
+			hlIndex: 0,
+		},
+		right: splitCell{
+			present: false,
+			line:    diff.Line{Kind: diff.LineAdded, OldNum: 0, NewNum: 0, Content: "", Segments: nil},
+			tokens:  nil,
+			hlIndex: 0,
+		},
+	}
+	dr.hasData = true
+
+	renderer.width = 800
+	renderer.Refresh()
+	renderer.Layout(fyne.NewSize(800, metrics.height))
+
+	visible := 0
+	for _, emph := range renderer.emphasis {
+		if emph.Visible() {
+			visible++
+		}
+	}
+
+	return visible
+}
+
 // DiffRowVisibleTextRuns applies first then second as the highlighted tokens of a
 // single recycled diff row and returns how many pooled text runs are visible
 // afterward. It verifies the renderer's pooling invariant: text runs left over
@@ -73,7 +123,7 @@ func DiffRowSplitVisibleAfterLayout(leftRuns, rightRuns []string, width float32)
 func DiffRowVisibleTextRuns(first, second []string) int {
 	// Metrics are irrelevant to the pooling invariant (only positions depend on
 	// them), so a zero value avoids a computeMetrics call here.
-	dr := newDiffRow(rowMetrics{}, palette{}, diffTextSize)
+	dr := newDiffRow(rowMetrics{}, palette{})
 	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
 	if !ok {
 		return -1
