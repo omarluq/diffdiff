@@ -132,13 +132,8 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 	s.startSweep(ctx, working, files)
 }
 
-const (
-	// scanShowDelay defers the scanning dialog so a fast scan never flashes it.
-	scanShowDelay = 200 * time.Millisecond
-	// scanCompleteHold keeps the filled (100%) bar on screen briefly so the
-	// completion is visible before the dialog dismisses.
-	scanCompleteHold = 160 * time.Millisecond
-)
+// scanShowDelay defers the scanning dialog so a fast scan never flashes it.
+const scanShowDelay = 200 * time.Millisecond
 
 // scanIndicator shows a modal "Scanning repository" dialog with an indeterminate
 // progress bar while a working-tree scan runs. The dialog appears only if the
@@ -184,9 +179,10 @@ func (si *scanIndicator) run() {
 	<-ready
 
 	<-si.stop
-	fyne.Do(bar.Complete) // fill to 100%
-	time.Sleep(scanCompleteHold)
-	fyne.Do(shown.Hide)
+	fyne.Do(func() {
+		bar.Stop()
+		shown.Hide()
+	})
 }
 
 // startSweep cancels any prior background build and launches a new one off the
