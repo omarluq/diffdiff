@@ -21,6 +21,8 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	startProfiling()
+
 	if err := fang.Execute(ctx, newRootCmd(), fang.WithVersion(vinfo.String())); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 
