@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/samber/lo"
@@ -14,9 +13,6 @@ import (
 	"github.com/omarluq/diffdiff/internal/icons"
 	"github.com/omarluq/diffdiff/internal/theme"
 )
-
-// scanningNotice is shown in the file panel while the working-tree scan runs.
-const scanningNotice = "Scanning…"
 
 // FileList is the changed-files panel: a fuzzy-filterable view of the files in a
 // diff, shown either flat (one row per full path) or as a nested directory tree.
@@ -36,9 +32,6 @@ type FileList struct {
 	list     *widget.List
 	tree     *widget.Tree
 	holder   *fyne.Container
-	// scanning is a centered notice shown in place of the views while the
-	// working-tree scan runs (go-git status can take a moment on huge worktrees).
-	scanning *canvas.Text
 }
 
 // fileEntry is a file made visible by the current filter, paired with the
@@ -62,41 +55,14 @@ func NewFileList(onSelect func(*diff.File)) *FileList {
 		list:       nil,
 		tree:       nil,
 		holder:     nil,
-		scanning:   nil,
 	}
 	list.ExtendBaseWidget(list)
 	list.buildList()
 	list.buildTree()
-
-	list.scanning = canvas.NewText(scanningNotice, color.NRGBA{})
-	list.scanning.Alignment = fyne.TextAlignCenter
-	list.scanning.Hide()
-
-	list.holder = container.NewStack(list.list, list.tree, container.NewCenter(list.scanning))
+	list.holder = container.NewStack(list.list, list.tree)
 	list.tree.Hide()
 
 	return list
-}
-
-// SetScanning shows or hides the "Scanning…" notice in place of the file views.
-// While scanning, both views are hidden so the panel reads clearly as busy;
-// SetFiles ends the scanning state when results arrive.
-func (l *FileList) SetScanning(scanning bool) {
-	if scanning {
-		l.list.Hide()
-		l.tree.Hide()
-		l.scanning.Show()
-		l.scanning.Refresh()
-
-		return
-	}
-
-	l.scanning.Hide()
-	if l.nested {
-		l.tree.Show()
-	} else {
-		l.list.Show()
-	}
 }
 
 // buildList wires the recycling flat list and its select handler once.
@@ -212,7 +178,6 @@ func (l *FileList) SetTree(nested bool) {
 // their original order.
 func (l *FileList) SetFiles(files []*diff.File) {
 	l.files = files
-	l.SetScanning(false)
 	l.SetFilter("")
 }
 
@@ -242,8 +207,6 @@ func (l *FileList) RefreshFile(file *diff.File) {
 // setPalette restyles both views to the given palette and refreshes them.
 func (l *FileList) setPalette(pal palette) {
 	l.palette = pal
-	l.scanning.Color = pal.muted
-	l.scanning.Refresh()
 	l.list.Refresh()
 	l.tree.Refresh()
 }

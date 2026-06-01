@@ -125,12 +125,6 @@ func (c *Content) DiffShowsLoading() bool {
 	return c.diffView.loading.Visible()
 }
 
-// ScanningShown reports whether the file panel's "Scanning…" indicator is
-// visible, so tests can verify it shows during a scan and clears on SetFiles.
-func (c *Content) ScanningShown() bool {
-	return c.fileList.scanning.Visible()
-}
-
 // DiffRowCount reports how many rows the diff view has flattened, so tests can
 // assert that a file renders (rows > 0) or is preserved across a restyle.
 func (c *Content) DiffRowCount() int {
