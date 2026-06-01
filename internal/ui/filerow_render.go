@@ -16,8 +16,8 @@ import (
 // and fuzzy-matched characters can each take their own color and weight. The
 // per-rune objects are rebuilt on each set since the path varies.
 type fileRowRenderer struct {
-	row  *fileRow
-	icon *canvas.Image
+	row   *fileRow
+	icon  *canvas.Image
 	glyph *canvas.Text
 	adds  *canvas.Text
 	dels  *canvas.Text
@@ -28,6 +28,10 @@ type fileRowRenderer struct {
 	segments []*canvas.Text
 	liveSegs int
 	height   float32
+	// iconKey is the resource name of the icon currently shown, so layoutIcon can
+	// skip re-decoding/re-scaling the PNG when a row repaint (e.g. streamed counts)
+	// leaves the icon unchanged.
+	iconKey string
 }
 
 // Destroy has nothing to release.
@@ -62,11 +66,31 @@ func (r *fileRowRenderer) Refresh() {
 }
 
 // layoutIcon places the Material file-type icon as a square at the row's left
-// edge, sized to the line height, picking the light variant on light themes.
+// edge, sized to the line height, picking the light variant on light themes. The
+// icon is painted from a cached decoded image (not the PNG resource) and is only
+// re-assigned when it actually changes, so a row repaint that leaves the icon the
+// same (streamed counts, a re-layout) does not re-decode or re-scale the PNG.
 func (r *fileRowRenderer) layoutIcon(filePath string) {
-	r.icon.Resource = icons.For(filePath, r.row.palette.dark)
 	r.icon.Resize(fyne.NewSize(r.height, r.height))
 	r.icon.Move(fyne.NewPos(0, 0))
+
+	res := icons.For(filePath, r.row.palette.dark)
+	key := ""
+	if res != nil {
+		key = res.Name()
+	}
+	if key == r.iconKey {
+		return
+	}
+	r.iconKey = key
+
+	if img := icons.Decoded(res); img != nil {
+		r.icon.Image = img
+		r.icon.Resource = nil
+	} else {
+		r.icon.Resource = res
+		r.icon.Image = nil
+	}
 	r.icon.Refresh()
 }
 
