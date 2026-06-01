@@ -43,9 +43,10 @@ type session struct {
 	cancel context.CancelFunc
 }
 
-// runGUI opens the diff viewer window for the repository at repoPath and blocks
-// until it is closed or ctx is canceled.
-func runGUI(ctx context.Context, repoPath string) error {
+// runGUI opens the diff viewer window for the current directory's repository and
+// blocks until it is closed or ctx is canceled.
+func runGUI(ctx context.Context) error {
+	const repoPath = "."
 	container, err := di.NewContainer(cfgFile, repoPath)
 	if err != nil {
 		return err
