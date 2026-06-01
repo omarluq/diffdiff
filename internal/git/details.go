@@ -51,8 +51,8 @@ func shortHash(hash plumbing.Hash) string {
 
 // firstLine returns the first line of a commit message, trimmed.
 func firstLine(message string) string {
-	if idx := strings.IndexByte(message, '\n'); idx >= 0 {
-		return strings.TrimSpace(message[:idx])
+	if before, _, ok := strings.Cut(message, "\n"); ok {
+		return strings.TrimSpace(before)
 	}
 
 	return strings.TrimSpace(message)
