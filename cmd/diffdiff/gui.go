@@ -140,13 +140,14 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 // scanShowDelay defers the scanning dialog so a fast scan never flashes it.
 const scanShowDelay = 200 * time.Millisecond
 
-// scanIndicator floats a centered nyan-cat card over the window while a
-// working-tree scan runs. It appears only if the scan outlasts scanShowDelay, so
-// quick scans show nothing. It is a hand-built card rather than a Fyne dialog: a
-// dialog paints its card with ColorNameOverlayBackground (our Surface shade),
-// which the transparent GIF revealed as a box clashing with the window
-// background. This card fills with the window's own Background plus a thin
-// border, so the cat sits on one consistent tone yet still reads as a card.
+// scanIndicator shows a modal nyan-cat popup while a working-tree scan runs: a
+// dimmed full-window backdrop with a centered card. It appears only if the scan
+// outlasts scanShowDelay, so quick scans show nothing. The card is hand-built
+// rather than a Fyne dialog because a dialog paints its card with
+// ColorNameOverlayBackground (our Surface shade) — the transparent GIF revealed
+// that as a box clashing with the window (the "color tearing"). This card fills
+// with the window's own Background, so the cat sits on one seamless tone, while
+// the dimmed backdrop gives it the pop of a real dialog.
 type scanIndicator struct {
 	win  fyne.Window
 	stop chan struct{}
@@ -232,24 +233,27 @@ func (si *scanIndicator) run() {
 	})
 }
 
-// scanCard builds the centered scan card: the nyan-cat animation padded inside a
-// rounded rectangle filled with the window's own Background color (so the
-// transparent GIF sits on one tone matching the window) and outlined with the
-// theme separator color so it still reads as a floating card. The result is a
-// canvas-filling Center; resizing it to the canvas centers the card, and
-// everything outside the card is transparent so the window shows through.
+// scanCard builds the modal scan popup: a dimmed full-canvas backdrop (the theme
+// shadow color, as Fyne's own popups use to dim the window) behind a centered
+// card. The card is a rounded rectangle filled with the window's own Background
+// color — so the transparent GIF sits on one seamless tone with no Surface box —
+// bordered with the theme separator and padded around the animation. The result
+// fills the canvas (resize it to lay the backdrop edge to edge and center the
+// card); the backdrop dims everything else so the card pops like a dialog.
 func scanCard(anim scanAnim) fyne.CanvasObject {
 	settings := fyne.CurrentApp().Settings()
 	thm, variant := settings.Theme(), settings.ThemeVariant()
+
+	backdrop := canvas.NewRectangle(thm.Color(fynetheme.ColorNameShadow, variant))
 
 	card := canvas.NewRectangle(thm.Color(fynetheme.ColorNameBackground, variant))
 	card.CornerRadius = scanCardRadius
 	card.StrokeColor = thm.Color(fynetheme.ColorNameSeparator, variant)
 	card.StrokeWidth = 1
 
-	return fynecontainer.NewCenter(
-		fynecontainer.NewStack(card, fynecontainer.NewPadded(anim)),
-	)
+	body := fynecontainer.NewStack(card, fynecontainer.NewPadded(anim))
+
+	return fynecontainer.NewStack(backdrop, fynecontainer.NewCenter(body))
 }
 
 // startSweep cancels any prior background build and launches a new one off the
