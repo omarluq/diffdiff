@@ -140,11 +140,13 @@ func (s *session) load(ctx context.Context, repo *git.Repository) {
 // scanShowDelay defers the scanning dialog so a fast scan never flashes it.
 const scanShowDelay = 200 * time.Millisecond
 
-// scanIndicator floats a nyan-cat animation over the window while a working-tree
-// scan runs. It appears only if the scan outlasts scanShowDelay, so quick scans
-// show nothing. It is a borderless canvas overlay rather than a dialog: a dialog
-// paints its card with ColorNameOverlayBackground (our Surface shade), which the
-// transparent GIF would reveal as a box that clashes with the window background.
+// scanIndicator floats a centered nyan-cat card over the window while a
+// working-tree scan runs. It appears only if the scan outlasts scanShowDelay, so
+// quick scans show nothing. It is a hand-built card rather than a Fyne dialog: a
+// dialog paints its card with ColorNameOverlayBackground (our Surface shade),
+// which the transparent GIF revealed as a box clashing with the window
+// background. This card fills with the window's own Background plus a thin
+// border, so the cat sits on one consistent tone yet still reads as a card.
 type scanIndicator struct {
 	win  fyne.Window
 	stop chan struct{}
@@ -161,10 +163,12 @@ type scanAnim interface {
 }
 
 // nyanWidth/nyanHeight are the embedded GIF's native pixel dimensions; pinning the
-// indicator to them renders the pixel art crisp at 1:1.
+// indicator to them renders the pixel art crisp at 1:1. scanCardRadius rounds the
+// card corners.
 const (
-	nyanWidth  = 200
-	nyanHeight = 161
+	nyanWidth      = 200
+	nyanHeight     = 161
+	scanCardRadius = 12
 )
 
 // newScanAnim builds the nyan-cat indicator, falling back to ScanBar if the
@@ -210,8 +214,12 @@ func (si *scanIndicator) run() {
 	)
 	fyne.Do(func() {
 		anim = newScanAnim()
-		overlay = scanOverlay(anim)
+		overlay = scanCard(anim)
 		si.win.Canvas().Overlays().Add(overlay)
+		// Overlays().Add does not size the object, so it would otherwise sit at its
+		// min size in a corner. Fill the canvas so NewCenter centers the card; the
+		// canvas resize loop keeps it centered on later window resizes.
+		overlay.Resize(si.win.Canvas().Size())
 		anim.Start()
 		close(ready)
 	})
@@ -224,17 +232,23 @@ func (si *scanIndicator) run() {
 	})
 }
 
-// scanOverlay centers the scan animation on a solid rectangle painted in the
-// window's own background color, so the transparent GIF sits on one uniform tone
-// (no dialog card, no modal scrim) that matches the rest of the window. The
-// opaque backing also hides the cleared panels behind a clean splash.
-func scanOverlay(anim scanAnim) fyne.CanvasObject {
+// scanCard builds the centered scan card: the nyan-cat animation padded inside a
+// rounded rectangle filled with the window's own Background color (so the
+// transparent GIF sits on one tone matching the window) and outlined with the
+// theme separator color so it still reads as a floating card. The result is a
+// canvas-filling Center; resizing it to the canvas centers the card, and
+// everything outside the card is transparent so the window shows through.
+func scanCard(anim scanAnim) fyne.CanvasObject {
 	settings := fyne.CurrentApp().Settings()
-	bg := settings.Theme().Color(fynetheme.ColorNameBackground, settings.ThemeVariant())
+	thm, variant := settings.Theme(), settings.ThemeVariant()
 
-	return fynecontainer.NewStack(
-		canvas.NewRectangle(bg),
-		fynecontainer.NewCenter(anim),
+	card := canvas.NewRectangle(thm.Color(fynetheme.ColorNameBackground, variant))
+	card.CornerRadius = scanCardRadius
+	card.StrokeColor = thm.Color(fynetheme.ColorNameSeparator, variant)
+	card.StrokeWidth = 1
+
+	return fynecontainer.NewCenter(
+		fynecontainer.NewStack(card, fynecontainer.NewPadded(anim)),
 	)
 }
 
