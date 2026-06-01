@@ -365,11 +365,11 @@ func (c *Content) SetFiles(files []*diff.File) {
 	c.diffView.SetFile(nil, c.active)
 }
 
-// SetScanning shows or hides the file panel's "Scanning…" indicator while the
-// working-tree scan runs, so the window can appear immediately and fill in when
-// the scan completes.
-func (c *Content) SetScanning(scanning bool) {
-	c.fileList.SetScanning(scanning)
+// Clear empties the panels (file list, diff view, and status summary), used when
+// switching repositories so the previous project's content disappears on the
+// spot while the new one is scanned.
+func (c *Content) Clear() {
+	c.SetFiles(nil)
 }
 
 // SetGitInfo updates the status bar with the active repository's branch and
