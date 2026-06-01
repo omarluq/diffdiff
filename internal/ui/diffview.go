@@ -81,7 +81,7 @@ func (v *DiffView) buildList() {
 			if !ok || id < 0 || id >= len(v.rows) {
 				return
 			}
-			dr.setRow(&v.rows[id], v.palette)
+			dr.setRow(&v.rows[id], v.palette, v.metrics)
 		},
 	)
 	v.list.HideSeparators = true

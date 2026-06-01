@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+	"github.com/samber/lo"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/icons"
@@ -219,12 +220,7 @@ func (l *FileList) Select(index int) {
 // VisiblePaths returns the paths currently shown, in display order. It exists
 // chiefly so tests can assert filtering and ordering behavior.
 func (l *FileList) VisiblePaths() []string {
-	paths := make([]string, len(l.visible))
-	for i := range l.visible {
-		paths[i] = l.visible[i].file.Path
-	}
-
-	return paths
+	return lo.Map(l.visible, func(entry fileEntry, _ int) string { return entry.file.Path })
 }
 
 // statusGlyph maps a file status to its single-character marker.

@@ -41,7 +41,7 @@ GOCACHE="$PWD/.gocache" go test -race -run '^TestRootCommand$' ./cmd/diffdiff/
 
 The dependency graph is built once at startup and resolved lazily:
 
-```
+```text
 main.run() → fang.Execute(ctx, newRootCmd(), WithVersion(vinfo.String()))
                           │
             cmd/diffdiff/*.go  (cobra commands; --config sets package var cfgFile)
@@ -63,9 +63,9 @@ Key seams:
 - **`cmd/diffdiff/`** currently exposes `config` (`show`/`validate`) and `version`. The `config show` command demonstrates the intended `lo` style (`lo.Map`, `lo.SliceToMap`, `lo.MaxBy`).
 - **`internal/vinfo`** — `Version`/`Commit`/`BuildDate` are set via `-ldflags` in `task build`; falls back to `debug.ReadBuildInfo()` for `go install` builds.
 
-## Code Style (enforced — 50+ linters, no test exclusions)
+## Code Style (enforced by 50+ linters)
 
-- **`exhaustruct`** is enabled for all `^github.com/omarluq/diffdiff/.*` structs: every struct literal in this module must initialize **all** fields. This is the most common surprise when adding code.
+- **`exhaustruct`** is enabled for all `^github.com/omarluq/diffdiff/.*` structs: every struct literal in this module must initialize **all** fields. This is the most common surprise when adding code. Two scoped exceptions (documented in `.golangci.yml`): `_test.go` files (fixtures legitimately build structs partially) and `internal/ui/` (Fyne widgets rely on `ExtendBaseWidget` partial literals). `internal/ui/` additionally relaxes the complexity linters (`funlen`/`gocognit`/`gocyclo`/`cyclop`/`dupl`/`varnamelen`) for its long, branch-heavy layout/render code.
 - **`errcheck` with `check-blank: true`**: never discard errors, including `_ =`. Handle every `fmt.Fprintf`/`fmt.Fprintln` return (see `printLine` in `cmd/diffdiff/config.go` for the pattern).
 - Wrap errors with `oops.In("domain").Code("code").Wrapf(err, "msg")`.
 - Use `mo.Option`/`mo.Result` for fallible/optional values; `lo` for collection transforms.

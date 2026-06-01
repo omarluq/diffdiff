@@ -83,7 +83,7 @@ cfg := do.MustInvoke[*ConfigService](injector)
 - Use `lo.Map`, `lo.SliceToMap`, `lo.MaxBy` for collections
 - Use `mo.Option`, `mo.Result` for monadic error handling
 - Never ignore errors — `errcheck` with `check-blank: true` is enabled
-- No test exclusions — all code must pass all 50+ linters
+- `exhaustruct` requires every module struct literal to set all fields, except in `_test.go` (partial fixtures) and `internal/ui/` (Fyne partial literals), which are scoped exceptions in `.golangci.yml`; `internal/ui/` also relaxes the complexity linters for its layout/render code
 - Handle every `fmt.Fprintf`/`fmt.Fprintln` return value
 
 ## When Adding Commands

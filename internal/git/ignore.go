@@ -42,22 +42,19 @@ func globalIgnorePatterns() []gitignore.Pattern {
 	return patterns
 }
 
-// defaultGlobalIgnoreFiles returns the global ignore files git reads when
-// core.excludesFile is unset: $XDG_CONFIG_HOME/git/ignore (default
-// ~/.config/git/ignore) and ~/.gitignore.
+// defaultGlobalIgnoreFiles returns the global ignore file git reads when
+// core.excludesFile is unset: $XDG_CONFIG_HOME/git/ignore, or its default
+// location ~/.config/git/ignore. (~/.gitignore is not consulted — git itself
+// does not read it.)
 func defaultGlobalIgnoreFiles() []string {
-	files := make([]string, 0, 2)
-
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		files = append(files, filepath.Join(xdg, "git", "ignore"))
-	} else if home, err := os.UserHomeDir(); err == nil {
-		files = append(files, filepath.Join(home, ".config", "git", "ignore"))
+		return []string{filepath.Join(xdg, "git", "ignore")}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		files = append(files, filepath.Join(home, ".gitignore"))
+		return []string{filepath.Join(home, ".config", "git", "ignore")}
 	}
 
-	return files
+	return nil
 }
 
 // parsePatternFile reads a gitignore-format file into root-domain patterns. A

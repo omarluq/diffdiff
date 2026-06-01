@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/samber/lo"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/highlight"
@@ -307,11 +308,8 @@ func (c *Content) toggleTreeView() {
 func (c *Content) SetFiles(files []*diff.File) {
 	c.fileList.SetFiles(files)
 
-	added, deleted := 0, 0
-	for _, file := range files {
-		added += file.Added
-		deleted += file.Deleted
-	}
+	added := lo.SumBy(files, func(file *diff.File) int { return file.Added })
+	deleted := lo.SumBy(files, func(file *diff.File) int { return file.Deleted })
 	c.statusBar.setSummary(len(files), added, deleted)
 
 	if len(files) > 0 {
