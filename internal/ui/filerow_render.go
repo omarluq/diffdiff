@@ -140,13 +140,7 @@ func (r *fileRowRenderer) layoutPath(filePath string, pal palette, advance, star
 
 // segmentText builds a monospace text run in the given color and weight.
 func (r *fileRowRenderer) segmentText(content string, textColor color.NRGBA, bold bool) *canvas.Text {
-	txt := canvas.NewText(content, textColor)
-	txt.TextSize = fileRowTextSize
-	style := monoStyle()
-	style.Bold = bold
-	txt.TextStyle = style
-
-	return txt
+	return newMonoText(content, textColor, fileRowTextSize, bold, fyne.TextAlignLeading)
 }
 
 // runeColor chooses a path rune's color: accent for a fuzzy match, foreground

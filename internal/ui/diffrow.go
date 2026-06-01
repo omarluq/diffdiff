@@ -136,14 +136,7 @@ func (dr *diffRow) CreateRenderer() fyne.WidgetRenderer {
 
 // newText builds a monospace canvas text in this row's size and style.
 func (dr *diffRow) newText(content string, col color.Color, align fyne.TextAlign) *canvas.Text {
-	txt := canvas.NewText(content, col)
-	txt.TextSize = dr.textSize
-	txt.TextStyle = fyne.TextStyle{
-		Bold: false, Italic: false, Monospace: true, Symbol: false, TabWidth: 0, Underline: false,
-	}
-	txt.Alignment = align
-
-	return txt
+	return newMonoText(content, col, dr.textSize, false, align)
 }
 
 // diffRowRenderer lays out one diff row. In unified mode background spans the

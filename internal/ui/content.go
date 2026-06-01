@@ -77,7 +77,7 @@ func NewContent(
 	}
 	content.fileList = NewFileList(content.handleSelect)
 	root := content.assemble()
-	content.restyle()
+	content.restylePalette()
 
 	return root, content
 }
@@ -334,7 +334,7 @@ func (c *Content) SetTheme(name string) {
 	if c.themeButton != nil {
 		c.themeButton.SetText(name)
 	}
-	c.restyle()
+	c.restylePalette()
 }
 
 // SetFont switches the active monospace font by display name. An unknown name is
@@ -348,24 +348,45 @@ func (c *Content) SetFont(name string) {
 	if c.fontButton != nil {
 		c.fontButton.SetText(name)
 	}
-	c.restyle()
+	c.relayoutForFont()
 }
 
-// restyle reapplies the active theme and font to the application chrome and both
-// panels. The application theme is set first so the monospace metrics
-// (glyph advance and line height) are re-measured against the active font before
-// the file list and diff view relayout.
-func (c *Content) restyle() {
+// applyFyneTheme installs the active theme + font as the Fyne application theme
+// so the window chrome and monospace metrics track the current selection.
+func (c *Content) applyFyneTheme() {
 	if app := fyne.CurrentApp(); app != nil {
 		if font, ok := c.fonts.Get(c.activeFont); ok {
 			app.Settings().SetTheme(theme.NewFyneTheme(c.active, font))
 		}
 	}
+}
+
+// restylePalette reapplies the active theme's colors to the chrome and both
+// panels in place. It is the theme-switch path: the diff view recolors its rows
+// (re-highlighting only if the chroma style changed) without re-flattening or
+// resetting the scroll position, so a theme switch never flickers.
+func (c *Content) restylePalette() {
+	c.applyFyneTheme()
 
 	pal := c.active.Palette()
 	c.statusBar.setPalette(paletteFrom(&pal))
 	c.fileList.SetTheme(c.active)
-	c.diffView.SetFile(c.current, c.active)
+	c.diffView.Restyle(c.active)
+}
+
+// relayoutForFont reapplies the active font: it re-measures the monospace
+// metrics (invalidating the cache first) and repositions both panels' rows in
+// place, preserving syntax tokens and scroll position. It is the font-switch
+// path, distinct from restylePalette because a font change moves cell geometry
+// while a theme change does not.
+func (c *Content) relayoutForFont() {
+	c.applyFyneTheme()
+	invalidateMonoMetrics()
+
+	pal := c.active.Palette()
+	c.statusBar.setPalette(paletteFrom(&pal))
+	c.fileList.SetTheme(c.active)
+	c.diffView.Relayout(c.active)
 }
 
 // ActiveTheme returns the theme currently applied.

@@ -44,6 +44,11 @@ type DiffView struct {
 	file  *diff.File
 	thm   *theme.Theme
 
+	// styleName is the chroma style name whose tokens are currently applied to
+	// the rows. A palette-only restyle compares against it to decide whether the
+	// (expensive) re-highlight is needed or a plain recolor suffices.
+	styleName string
+
 	// generation guards against a stale highlight result from a previous file
 	// landing after the user has already switched files.
 	generation uint64
@@ -63,6 +68,7 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 		split:       false,
 		file:        nil,
 		thm:         nil,
+		styleName:   "",
 		generation:  0,
 	}
 	view.ExtendBaseWidget(view)
@@ -107,7 +113,8 @@ func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 	v.thm = thm
 	pal := thm.Palette()
 	v.palette = paletteFrom(&pal)
-	v.metrics = computeMetrics(diffTextSize)
+	v.styleName = pal.StyleName
+	v.recomputeMetrics()
 	v.binary.Color = v.palette.muted
 
 	if file == nil {
@@ -123,6 +130,50 @@ func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 
 	v.showRows(v.flattenFile(file))
 	v.startHighlight(file, thm, v.generation)
+}
+
+// Restyle applies a new theme's palette in place without re-flattening or
+// scrolling: row backgrounds, gutters, signs, and plain text recolor from the
+// palette on the next refresh. Syntax tokens are re-derived only when the chroma
+// style actually changed (a light/dark flip within the same style keeps them),
+// avoiding the flicker and scroll jump of a full SetFile on every theme switch.
+func (v *DiffView) Restyle(thm *theme.Theme) {
+	v.thm = thm
+	pal := thm.Palette()
+	v.palette = paletteFrom(&pal)
+	v.binary.Color = v.palette.muted
+
+	styleChanged := pal.StyleName != v.styleName
+	v.styleName = pal.StyleName
+
+	v.list.Refresh()
+
+	if styleChanged && v.file != nil && !v.file.Binary {
+		v.generation++
+		v.startHighlight(v.file, thm, v.generation)
+	}
+}
+
+// Relayout re-measures the monospace metrics after a font change and repositions
+// the current rows in place. The row model and its syntax tokens are font
+// independent, so they are preserved (no re-flatten, no re-highlight) and the
+// scroll position is kept — only cell geometry updates. Callers must invalidate
+// the cached glyph metrics (invalidateMonoMetrics) before calling so the new
+// font is measured.
+func (v *DiffView) Relayout(thm *theme.Theme) {
+	v.thm = thm
+	pal := thm.Palette()
+	v.palette = paletteFrom(&pal)
+	v.binary.Color = v.palette.muted
+	v.recomputeMetrics()
+	v.list.Refresh()
+}
+
+// recomputeMetrics refreshes the cached monospace layout measurements for the
+// diff text size. It is the single internal caller of computeMetrics so both the
+// file-load and font-relayout paths share one measurement point.
+func (v *DiffView) recomputeMetrics() {
+	v.metrics = computeMetrics(diffTextSize)
 }
 
 // SetSplit selects the split (side-by-side) or unified (stacked) layout. It
@@ -228,13 +279,18 @@ func flatten(file *diff.File, metrics rowMetrics) []row {
 
 // hunkHeader formats the unified-diff hunk marker plus its section heading.
 func hunkHeader(hunk *diff.Hunk) string {
-	marker := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
-		hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines)
-	if hunk.Section == "" {
+	return formatHunkMarker(hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines, hunk.Section)
+}
+
+// formatHunkMarker renders the "@@ -a,b +c,d @@" marker plus an optional section
+// heading, shared by the unified and split separator rows.
+func formatHunkMarker(oldStart, oldLines, newStart, newLines int, section string) string {
+	marker := fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldLines, newStart, newLines)
+	if section == "" {
 		return marker
 	}
 
-	return marker + " " + hunk.Section
+	return marker + " " + section
 }
 
 // flattenSplit turns a file into side-by-side rows: a separator row per hunk
@@ -289,13 +345,7 @@ func splitCellFrom(line *diff.Line, hlIndex int) splitCell {
 
 // splitHunkHeader formats the hunk marker for a split separator row.
 func splitHunkHeader(split *diff.SplitRow) string {
-	marker := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
-		split.OldStart, split.OldLines, split.NewStart, split.NewLines)
-	if split.Section == "" {
-		return marker
-	}
-
-	return marker + " " + split.Section
+	return formatHunkMarker(split.OldStart, split.OldLines, split.NewStart, split.NewLines, split.Section)
 }
 
 // computeMetrics derives the shared monospace layout measurements for a text
