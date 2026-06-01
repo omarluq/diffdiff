@@ -11,6 +11,9 @@
 package icons
 
 import (
+	"bytes"
+	"image"
+	_ "image/png" // register the PNG decoder for Decoded
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,9 +24,38 @@ import (
 )
 
 var (
-	mu     sync.Mutex
-	byName = make(map[string]fyne.Resource)
+	mu      sync.Mutex
+	byName  = make(map[string]fyne.Resource)
+	imgMu   sync.Mutex
+	byImage = make(map[string]image.Image)
 )
+
+// Decoded returns the decoded image for an icon resource, memoized by name. The
+// file list renders an icon per row; setting canvas.Image.Image from this cache
+// instead of canvas.Image.Resource lets Fyne paint an already-decoded image
+// rather than re-decoding the PNG on every row repaint — the single largest
+// allocation source in the UI. It returns nil if res is nil or cannot be
+// decoded, in which case the caller should fall back to the resource.
+func Decoded(res fyne.Resource) image.Image {
+	if res == nil {
+		return nil
+	}
+
+	imgMu.Lock()
+	defer imgMu.Unlock()
+
+	if img, ok := byImage[res.Name()]; ok {
+		return img
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(res.Content()))
+	if err != nil {
+		return nil
+	}
+	byImage[res.Name()] = img
+
+	return img
+}
 
 // For returns the Material icon resource for the file at path, preferring a
 // whole-filename match over the extension and falling back to a generic file

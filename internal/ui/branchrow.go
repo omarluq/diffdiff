@@ -4,6 +4,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/omarluq/diffdiff/internal/icons"
 )
 
 // branchRow is a directory node in the nested file view: a Material folder icon
@@ -71,6 +73,9 @@ type branchRowRenderer struct {
 	icon   *canvas.Image
 	name   *canvas.Text
 	height float32
+	// iconKey is the resource name of the folder icon currently shown, so Refresh
+	// skips re-decoding/re-scaling the PNG when the icon is unchanged.
+	iconKey string
 }
 
 // Destroy has nothing to release.
@@ -89,10 +94,24 @@ func (r *branchRowRenderer) Refresh() {
 	if !r.row.hasData {
 		return
 	}
-	r.icon.Resource = r.row.icon
 	r.icon.Resize(fyne.NewSize(r.height, r.height))
 	r.icon.Move(fyne.NewPos(0, 0))
-	r.icon.Refresh()
+
+	key := ""
+	if r.row.icon != nil {
+		key = r.row.icon.Name()
+	}
+	if key != r.iconKey {
+		r.iconKey = key
+		if img := icons.Decoded(r.row.icon); img != nil {
+			r.icon.Image = img
+			r.icon.Resource = nil
+		} else {
+			r.icon.Resource = r.row.icon
+			r.icon.Image = nil
+		}
+		r.icon.Refresh()
+	}
 
 	r.name.Text = r.row.label
 	r.name.Color = r.row.palette.foreground

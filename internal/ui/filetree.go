@@ -163,9 +163,13 @@ func (l *FileList) SetTree(nested bool) {
 	if nested {
 		l.list.Hide()
 		l.tree.Show()
+		// The tree was not refreshed while hidden during streaming; bring it up to
+		// date now so any counts that arrived meanwhile are shown.
+		l.tree.Refresh()
 	} else {
 		l.tree.Hide()
 		l.list.Show()
+		l.list.Refresh()
 	}
 	l.holder.Refresh()
 }
@@ -183,6 +187,14 @@ func (l *FileList) SetFiles(files []*diff.File) {
 // matching row's update, which is what keeps background-loaded results from
 // flickering or jumping the list. The tree leaf is keyed by the file's path.
 func (l *FileList) RefreshFile(file *diff.File) {
+	// Only the visible view is refreshed as results stream in; the hidden view is
+	// brought up to date once, on toggle, by SetTree. Refreshing both per file
+	// doubled the per-row render work (and icon work) during the sweep.
+	if l.nested {
+		l.tree.RefreshItem(file.Path)
+
+		return
+	}
 	for index := range l.visible {
 		if l.visible[index].file == file {
 			l.list.RefreshItem(index)
@@ -190,7 +202,6 @@ func (l *FileList) RefreshFile(file *diff.File) {
 			break
 		}
 	}
-	l.tree.RefreshItem(file.Path)
 }
 
 // setPalette restyles both views to the given palette and refreshes them.
