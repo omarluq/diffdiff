@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/samber/lo"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/highlight"
@@ -48,6 +47,14 @@ type Content struct {
 	splitView     bool
 	nestedTree    bool
 	onOpenProject func(string)
+	// Streaming summary state: counts arrive per file as their diffs build in the
+	// background. fileCount is fixed at SetFiles; addedSum/deletedSum accumulate;
+	// counted guards against a file being tallied twice (the sweep and an
+	// on-demand load can both report the same file ready).
+	fileCount  int
+	addedSum   int
+	deletedSum int
+	counted    map[*diff.File]bool
 }
 
 // NewContent assembles the diff browser, returning its root canvas object and a
@@ -74,6 +81,10 @@ func NewContent(
 		splitView:     false,
 		nestedTree:    false,
 		onOpenProject: nil,
+		fileCount:     0,
+		addedSum:      0,
+		deletedSum:    0,
+		counted:       nil,
 	}
 	content.fileList = NewFileList(content.handleSelect)
 	root := content.assemble()
@@ -83,10 +94,39 @@ func NewContent(
 }
 
 // handleSelect loads the chosen file into the diff view under the active theme,
-// remembering it so a later theme or font switch can restyle it in place.
+// remembering it so a later theme or font switch can restyle it in place. An
+// unbuilt file shows a loading placeholder; the background sweep's FileReady
+// swaps in the rendered diff once it lands.
 func (c *Content) handleSelect(file *diff.File) {
 	c.current = file
 	c.diffView.SetFile(file, c.active)
+}
+
+// FileReady streams a freshly built file's results into the UI: it repaints the
+// file's row (counts + corrected status glyph) in place, advances the running
+// status-bar totals once, and — if the file is the one currently shown — swaps
+// the loading placeholder for the rendered diff. It is idempotent (a file may be
+// reported ready by both the sweep and an on-demand load) and must run on the UI
+// goroutine; callers marshal it via fyne.Do.
+func (c *Content) FileReady(file *diff.File) {
+	if file == nil {
+		return
+	}
+	c.fileList.RefreshFile(file)
+
+	if c.counted == nil {
+		c.counted = map[*diff.File]bool{}
+	}
+	if !c.counted[file] {
+		c.counted[file] = true
+		c.addedSum += file.Added
+		c.deletedSum += file.Deleted
+		c.statusBar.setSummary(c.fileCount, c.addedSum, c.deletedSum)
+	}
+
+	if file == c.current {
+		c.diffView.FileLoaded(file, c.active)
+	}
 }
 
 // assemble builds the toolbar and split layout. The toolbar runs left to right:
@@ -302,19 +342,27 @@ func (c *Content) toggleTreeView() {
 	c.fileList.SetTree(c.nestedTree)
 }
 
-// SetFiles loads the file set into the file list, updates the status-bar
-// summary, and opens the first file so the diff view is populated immediately
-// rather than blank until the first click.
+// SetFiles loads the file set into the file list and opens the first file. The
+// files may be unloaded (status-only): their rows show immediately with status
+// glyphs while the counts and diffs stream in via FileReady, so the summary
+// starts at zero counts and climbs as files build. The selected file's diff is
+// shown as a loading placeholder until it is ready.
 func (c *Content) SetFiles(files []*diff.File) {
 	c.fileList.SetFiles(files)
 
-	added := lo.SumBy(files, func(file *diff.File) int { return file.Added })
-	deleted := lo.SumBy(files, func(file *diff.File) int { return file.Deleted })
-	c.statusBar.setSummary(len(files), added, deleted)
+	c.fileCount = len(files)
+	c.addedSum = 0
+	c.deletedSum = 0
+	c.counted = map[*diff.File]bool{}
+	c.statusBar.setSummary(c.fileCount, 0, 0)
 
 	if len(files) > 0 {
 		c.handleSelect(files[0])
+
+		return
 	}
+	c.current = nil
+	c.diffView.SetFile(nil, c.active)
 }
 
 // SetGitInfo updates the status bar with the active repository's branch and

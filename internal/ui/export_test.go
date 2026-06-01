@@ -1,6 +1,36 @@
 package ui
 
-import "github.com/omarluq/diffdiff/internal/diff"
+import (
+	"sort"
+
+	"github.com/omarluq/diffdiff/internal/diff"
+)
+
+// DiffShowsLoading reports whether the diff view is currently showing its
+// "loading" placeholder, letting tests verify the lazy-load placeholder/swap.
+func (c *Content) DiffShowsLoading() bool {
+	return c.diffView.loading.Visible()
+}
+
+// DiffRowCount reports how many rows the diff view has flattened, so tests can
+// assert that a file renders (rows > 0) or is preserved across a restyle.
+func (c *Content) DiffRowCount() int {
+	return len(c.diffView.rows)
+}
+
+// TreeLeafPaths returns the sorted leaf UIDs of the nested-view model for files.
+// Leaves are keyed by full path, so tests assert these equal the input paths —
+// the invariant RefreshFile relies on to refresh a tree leaf by file.Path.
+func TreeLeafPaths(files []*diff.File) []string {
+	model := buildTreeModel(allEntries(files))
+	paths := make([]string, 0, len(model.leaves))
+	for uid := range model.leaves {
+		paths = append(paths, uid)
+	}
+	sort.Strings(paths)
+
+	return paths
+}
 
 // FlattenRowKinds re-exports the unexported flatten helper for the external
 // ui_test package, returning a compact description of each produced row: true

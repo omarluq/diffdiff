@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/samber/lo"
 	"github.com/samber/oops"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 )
@@ -22,30 +24,104 @@ import (
 // whether a working-tree file is binary.
 const binarySniffLen = 8000
 
-// WorkingDiff returns the diff of the working tree against HEAD (equivalent to
-// `git diff HEAD`): every staged and unstaged change plus untracked files.
-// Gitignored files are always excluded — including files ignored only via
-// .git/info/exclude or the global/system excludes, which go-git's Status does
-// not filter on its own. Files are returned sorted by path.
-func (r *Repository) WorkingDiff() ([]*diff.File, error) {
+// WorkingSet is a lazily-materialized view of the working-tree changes against
+// HEAD. ChangedFiles produces the file list cheaply (paths + provisional status,
+// no blob reads or diffing); LoadFile then builds one file's hunks and counts on
+// demand. LoadFile is safe to call concurrently from multiple goroutines.
+type WorkingSet struct {
+	repo    *Repository
+	head    *object.Commit
+	entries map[string]*git.FileStatus
+	flight  singleflight.Group
+	mu      sync.Mutex
+	loaded  map[string]bool
+}
+
+// ChangedFiles scans the working tree against HEAD and returns the changed files
+// with only their path and a provisional status populated — Hunks nil, counts
+// zero, State Unloaded. It performs no blob reads or diffing, so it is cheap
+// enough to run before the first paint; call WorkingSet.LoadFile to build a
+// file's diff on demand. Gitignored files are always excluded (including those
+// ignored only via .git/info/exclude or the global/system excludes, which
+// go-git's Status does not filter on its own). Files are sorted by path.
+func (r *Repository) ChangedFiles() (*WorkingSet, []*diff.File, error) {
 	wt, err := r.repo.Worktree()
 	if err != nil {
-		return nil, oops.In("git").Code("worktree").Wrapf(err, "resolve worktree")
+		return nil, nil, oops.In("git").Code("worktree").Wrapf(err, "resolve worktree")
 	}
 
 	status, err := wt.Status()
 	if err != nil {
-		return nil, oops.In("git").Code("status").Wrapf(err, "compute status")
+		return nil, nil, oops.In("git").Code("status").Wrapf(err, "compute status")
 	}
 
 	head, err := r.headCommit()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	entries := selectEntries(status, r.supplementalMatcher())
+	working := &WorkingSet{
+		repo:    r,
+		head:    head,
+		entries: entries,
+		flight:  singleflight.Group{},
+		mu:      sync.Mutex{},
+		loaded:  make(map[string]bool, len(entries)),
+	}
 
-	return r.buildFiles(head, entries)
+	return working, listFiles(entries), nil
+}
+
+// listFiles builds the sorted, status-only file list for the cheap scan. Each
+// file is Unloaded: its path and a provisional (blob-free) status are known, but
+// its hunks and counts are not yet computed.
+func listFiles(entries map[string]*git.FileStatus) []*diff.File {
+	paths := lo.Keys(entries)
+	sort.Strings(paths)
+
+	files := make([]*diff.File, 0, len(paths))
+	for _, path := range paths {
+		fs := entries[path]
+		files = append(files, &diff.File{
+			Path:     strings.Clone(path),
+			OldPath:  strings.Clone(resolveOldPath(fs, path)),
+			Status:   classifyFromStatus(fs),
+			Language: "",
+			Binary:   false,
+			Hunks:    nil,
+			Added:    0,
+			Deleted:  0,
+			State:    diff.StateUnloaded,
+		})
+	}
+
+	return files
+}
+
+// WorkingDiff returns the diff of the working tree against HEAD (equivalent to
+// `git diff HEAD`): every staged and unstaged change plus untracked files, each
+// fully materialized. It is the eager convenience wrapper over ChangedFiles +
+// LoadFile; the GUI uses the lazy pair directly. A modified file that resolves to
+// no textual change is dropped, matching `git diff`. Files are sorted by path.
+func (r *Repository) WorkingDiff() ([]*diff.File, error) {
+	working, files, err := r.ChangedFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*diff.File, 0, len(files))
+	for _, file := range files {
+		if err := working.LoadFile(file); err != nil {
+			return nil, err
+		}
+		if len(file.Hunks) == 0 && file.Status == diff.StatusModified && !file.Binary {
+			continue // a staged change reverted in the worktree: no renderable diff
+		}
+		out = append(out, file)
+	}
+
+	return out, nil
 }
 
 // selectEntries chooses the status entries to render: every tracked change, plus
@@ -67,24 +143,62 @@ func selectEntries(status git.Status, matcher gitignore.Matcher) map[string]*git
 	return entries
 }
 
-// buildFiles materializes the diff for each entry, sorted by path, dropping any
-// that resolve to no renderable change.
-func (r *Repository) buildFiles(head *object.Commit, entries map[string]*git.FileStatus) ([]*diff.File, error) {
-	paths := lo.Keys(entries)
-	sort.Strings(paths)
-
-	files := make([]*diff.File, 0, len(paths))
-	for _, path := range paths {
-		file, err := r.buildFile(head, path, entries[path])
-		if err != nil {
-			return nil, err
-		}
-		if file != nil {
-			files = append(files, file)
-		}
+// LoadFile builds the diff content for a single file — hunks, counts, the real
+// binary flag, and the blob-corrected status — mutating the file in place and
+// marking it loaded. It is idempotent and safe to call concurrently: concurrent
+// calls for the same file are de-duplicated (singleflight) so the file's fields
+// are written by exactly one goroutine, and an already-loaded file returns
+// immediately. Callers must publish the file to the UI only after LoadFile
+// returns, so the writes are visible without further synchronization.
+func (ws *WorkingSet) LoadFile(file *diff.File) error {
+	ws.mu.Lock()
+	done, present := ws.loaded[file.Path], ws.entries[file.Path]
+	ws.mu.Unlock()
+	if done || present == nil {
+		return nil // already built, or not part of this working set
 	}
 
-	return files, nil
+	// The shared value is unused (callers want only the error); return a non-nil
+	// sentinel so the flight closure never returns (nil, nil).
+	sentinel := struct{}{}
+	_, err, _ := ws.flight.Do(file.Path, func() (any, error) {
+		ws.mu.Lock()
+		already := ws.loaded[file.Path]
+		ws.mu.Unlock()
+		if already {
+			return sentinel, nil
+		}
+
+		if buildErr := ws.repo.materialize(ws.head, file, present); buildErr != nil {
+			return sentinel, buildErr
+		}
+
+		ws.mu.Lock()
+		ws.loaded[file.Path] = true
+		ws.mu.Unlock()
+
+		return sentinel, nil
+	})
+
+	return err
+}
+
+// classifyFromStatus derives a diff status from git status codes alone, with no
+// blob reads, for the cheap scan. It is a best guess that materialize later
+// corrects with blob-existence information (see classify).
+func classifyFromStatus(fs *git.FileStatus) diff.Status {
+	switch {
+	case fs.Worktree == git.Untracked:
+		return diff.StatusUntracked
+	case fs.Staging == git.Added:
+		return diff.StatusAdded
+	case fs.Staging == git.Deleted || fs.Worktree == git.Deleted:
+		return diff.StatusDeleted
+	case fs.Staging == git.Renamed || fs.Worktree == git.Renamed:
+		return diff.StatusRenamed
+	default:
+		return diff.StatusModified
+	}
 }
 
 // headCommit returns the commit at HEAD, or nil if the repository has no
@@ -106,52 +220,47 @@ func (r *Repository) headCommit() (*object.Commit, error) {
 	return commit, nil
 }
 
-// buildFile assembles the diff for a single changed path. It returns nil when
-// the path turns out to have no renderable change (e.g. a metadata-only delta).
-func (r *Repository) buildFile(head *object.Commit, path string, fs *git.FileStatus) (*diff.File, error) {
-	oldPath := resolveOldPath(fs, path)
+// materialize fills in a file's diff content in place: it reads the old (HEAD)
+// and new (working) blobs, sets the real binary flag and the blob-corrected
+// status, builds the hunks and line counts, and marks the file loaded. A binary
+// file is recorded with no hunks. Unlike the old eager path it never drops a
+// "no renderable change" file — the row already exists, so it stays as a loaded
+// zero-count entry (WorkingDiff applies the drop for its eager callers).
+func (r *Repository) materialize(head *object.Commit, file *diff.File, fs *git.FileStatus) error {
+	oldPath := resolveOldPath(fs, file.Path)
 
 	oldContent, oldBinary, oldExists, err := readHeadFile(head, oldPath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	newContent, newBinary, newExists, err := r.readWorkFile(path)
+	newContent, newBinary, newExists, err := r.readWorkFile(file.Path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	file := &diff.File{
-		Path:     strings.Clone(path),
-		OldPath:  strings.Clone(oldPath),
-		Status:   classify(fs, oldExists, newExists, oldPath != path),
-		Language: "",
-		Binary:   oldBinary || newBinary,
-		Hunks:    nil,
-		Added:    0,
-		Deleted:  0,
-	}
-
+	file.Status = classify(fs, oldExists, newExists, oldPath != file.Path)
+	file.Binary = oldBinary || newBinary
 	if file.Binary {
-		return file, nil
+		file.Hunks = nil
+		file.Added = 0
+		file.Deleted = 0
+		file.State = diff.StateLoaded
+
+		return nil
 	}
 
 	hunks, added, deleted, err := diff.BuildHunks(oldContent, newContent)
 	if err != nil {
-		return nil, oops.In("git").Code("build_hunks").With("path", path).Wrapf(err, "diff file")
-	}
-
-	// A tracked file flagged as modified but with identical content (e.g. a
-	// staged change reverted in the worktree) yields no hunks — drop it.
-	if len(hunks) == 0 && file.Status == diff.StatusModified {
-		return nil, nil //nolint:nilnil // nil file signals "no renderable change"
+		return oops.In("git").Code("build_hunks").With("path", file.Path).Wrapf(err, "diff file")
 	}
 
 	file.Hunks = hunks
 	file.Added = added
 	file.Deleted = deleted
+	file.State = diff.StateLoaded
 
-	return file, nil
+	return nil
 }
 
 // resolveOldPath returns the path a file had on the old side of the diff,

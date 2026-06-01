@@ -22,6 +22,10 @@ const gutterDigits = 6
 // binaryNotice is shown in place of rows for files with no textual diff.
 const binaryNotice = "Binary file not shown"
 
+// loadingNotice is shown while a selected file's diff is still being built in
+// the background.
+const loadingNotice = "Loading diff…"
+
 // DiffView is a virtualized unified-diff viewer. It flattens a diff.File into a
 // flat row model once per file and renders it with a recycling widget.List, so
 // only on-screen rows allocate CanvasObjects. Syntax highlighting runs off the
@@ -34,9 +38,10 @@ type DiffView struct {
 	palette     palette
 	metrics     rowMetrics
 
-	list   *widget.List
-	binary *canvas.Text
-	holder *fyne.Container
+	list    *widget.List
+	binary  *canvas.Text
+	loading *canvas.Text
+	holder  *fyne.Container
 
 	// split selects side-by-side layout over the unified (stacked) layout. file
 	// and thm retain the current input so a layout toggle can re-flatten in place.
@@ -64,6 +69,7 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 		metrics:     rowMetrics{},
 		list:        nil,
 		binary:      nil,
+		loading:     nil,
 		holder:      nil,
 		split:       false,
 		file:        nil,
@@ -96,7 +102,15 @@ func (v *DiffView) buildList() {
 	v.binary.Alignment = fyne.TextAlignCenter
 	v.binary.Hide()
 
-	v.holder = container.NewStack(v.list, container.NewCenter(v.binary))
+	v.loading = canvas.NewText(loadingNotice, color.Gray{Y: 0x88})
+	v.loading.Alignment = fyne.TextAlignCenter
+	v.loading.Hide()
+
+	v.holder = container.NewStack(
+		v.list,
+		container.NewCenter(v.binary),
+		container.NewCenter(v.loading),
+	)
 }
 
 // CreateRenderer renders the list/binary holder.
@@ -115,10 +129,15 @@ func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 	v.palette = paletteFrom(&pal)
 	v.styleName = pal.StyleName
 	v.recomputeMetrics()
-	v.binary.Color = v.palette.muted
+	v.applyNoticeColor()
 
 	if file == nil {
 		v.showRows(nil)
+
+		return
+	}
+	if !file.Loaded() {
+		v.showLoading()
 
 		return
 	}
@@ -132,6 +151,41 @@ func (v *DiffView) SetFile(file *diff.File, thm *theme.Theme) {
 	v.startHighlight(file, thm, v.generation)
 }
 
+// FileLoaded renders a file whose diff finished building in the background, but
+// only while it is still the selected file (pointer identity) — a result for a
+// file the user navigated away from is ignored. It is the swap-in half of the
+// lazy load: SetFile shows a loading placeholder for an unloaded file, and this
+// replaces it with the real diff once ready. Scrolling to top here is correct,
+// since this is the first render of the file's content.
+func (v *DiffView) FileLoaded(file *diff.File, thm *theme.Theme) {
+	if file == nil || file != v.file {
+		return
+	}
+	v.generation++
+	v.thm = thm
+	pal := thm.Palette()
+	v.palette = paletteFrom(&pal)
+	v.styleName = pal.StyleName
+	v.recomputeMetrics()
+	v.applyNoticeColor()
+
+	if file.Binary {
+		v.showBinary()
+
+		return
+	}
+
+	v.showRows(v.flattenFile(file))
+	v.startHighlight(file, thm, v.generation)
+}
+
+// applyNoticeColor tints the binary and loading placeholders to the muted
+// palette color so they track the active theme.
+func (v *DiffView) applyNoticeColor() {
+	v.binary.Color = v.palette.muted
+	v.loading.Color = v.palette.muted
+}
+
 // Restyle applies a new theme's palette in place without re-flattening or
 // scrolling: row backgrounds, gutters, signs, and plain text recolor from the
 // palette on the next refresh. Syntax tokens are re-derived only when the chroma
@@ -141,7 +195,7 @@ func (v *DiffView) Restyle(thm *theme.Theme) {
 	v.thm = thm
 	pal := thm.Palette()
 	v.palette = paletteFrom(&pal)
-	v.binary.Color = v.palette.muted
+	v.applyNoticeColor()
 
 	styleChanged := pal.StyleName != v.styleName
 	v.styleName = pal.StyleName
@@ -164,7 +218,7 @@ func (v *DiffView) Relayout(thm *theme.Theme) {
 	v.thm = thm
 	pal := thm.Palette()
 	v.palette = paletteFrom(&pal)
-	v.binary.Color = v.palette.muted
+	v.applyNoticeColor()
 	v.recomputeMetrics()
 	v.list.Refresh()
 }
@@ -203,11 +257,11 @@ func (v *DiffView) flattenFile(file *diff.File) []row {
 	return flatten(file, v.metrics)
 }
 
-// showRows swaps in a new row model and refreshes the list, hiding the binary
-// notice.
+// showRows swaps in a new row model and refreshes the list, hiding the notices.
 func (v *DiffView) showRows(rows []row) {
 	v.rows = rows
 	v.binary.Hide()
+	v.loading.Hide()
 	v.list.Show()
 	v.list.Refresh()
 	v.list.ScrollToTop()
@@ -218,8 +272,20 @@ func (v *DiffView) showBinary() {
 	v.rows = nil
 	v.list.Refresh()
 	v.list.Hide()
+	v.loading.Hide()
 	v.binary.Show()
 	v.binary.Refresh()
+}
+
+// showLoading clears rows and reveals the centered "loading" notice while a
+// selected file's diff is still being built in the background.
+func (v *DiffView) showLoading() {
+	v.rows = nil
+	v.list.Refresh()
+	v.list.Hide()
+	v.binary.Hide()
+	v.loading.Show()
+	v.loading.Refresh()
 }
 
 // flatten turns a file's hunks into a flat row slice: a separator row precedes

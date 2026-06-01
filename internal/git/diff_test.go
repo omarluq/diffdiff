@@ -3,6 +3,7 @@ package git_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,4 +160,93 @@ func TestWorkingDiffClean(t *testing.T) {
 	files, err := repo.WorkingDiff()
 	require.NoError(t, err)
 	assert.Empty(t, files)
+}
+
+// TestChangedFilesAreUnloaded verifies the cheap scan returns the changed file
+// with its path and status but no diff content, so the UI can paint the list
+// before any blob is read or diffed.
+func TestChangedFilesAreUnloaded(t *testing.T) {
+	t.Parallel()
+
+	dir := initRepo(t, "a.txt", "one\ntwo\nthree\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n2\nthree\n"), 0o600))
+
+	repo, err := ourgit.Open(dir)
+	require.NoError(t, err)
+
+	working, files, err := repo.ChangedFiles()
+	require.NoError(t, err)
+	require.NotNil(t, working)
+	require.Len(t, files, 1)
+
+	f := files[0]
+	assert.Equal(t, "a.txt", f.Path)
+	assert.False(t, f.Loaded(), "the cheap scan yields an unloaded file")
+	assert.Empty(t, f.Hunks, "no hunks are built before load")
+	assert.Zero(t, f.Added)
+	assert.Zero(t, f.Deleted)
+}
+
+// TestLoadFileMaterializesAndIsIdempotent verifies LoadFile builds the hunks and
+// counts in place and that a second call does not rebuild or change them.
+func TestLoadFileMaterializesAndIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	dir := initRepo(t, "a.txt", "one\ntwo\nthree\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n2\nthree\n"), 0o600))
+
+	repo, err := ourgit.Open(dir)
+	require.NoError(t, err)
+
+	working, files, err := repo.ChangedFiles()
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	f := files[0]
+
+	require.NoError(t, working.LoadFile(f))
+	assert.True(t, f.Loaded())
+	assert.Equal(t, diff.StatusModified, f.Status)
+	assert.Equal(t, 1, f.Added)
+	assert.Equal(t, 1, f.Deleted)
+	require.NotEmpty(t, f.Hunks)
+
+	hunks, added, deleted := len(f.Hunks), f.Added, f.Deleted
+	require.NoError(t, working.LoadFile(f), "a second load is a no-op")
+	assert.Len(t, f.Hunks, hunks)
+	assert.Equal(t, added, f.Added)
+	assert.Equal(t, deleted, f.Deleted)
+}
+
+// TestLoadFileConcurrent loads every file from many goroutines at once; with the
+// race detector enabled this guards that concurrent (and duplicate) loads do not
+// race on a file's fields.
+func TestLoadFileConcurrent(t *testing.T) {
+	t.Parallel()
+
+	dir := initRepo(t, "a.txt", "one\ntwo\nthree\n")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n2\nthree\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("brand\nnew\n"), 0o600))
+
+	repo, err := ourgit.Open(dir)
+	require.NoError(t, err)
+
+	working, files, err := repo.ChangedFiles()
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	var group sync.WaitGroup
+	for _, f := range files {
+		for range 8 {
+			group.Add(1)
+			go func(file *diff.File) {
+				defer group.Done()
+				assert.NoError(t, working.LoadFile(file))
+			}(f)
+		}
+	}
+	group.Wait()
+
+	for _, f := range files {
+		assert.True(t, f.Loaded(), "every file is loaded after the concurrent sweep")
+	}
 }

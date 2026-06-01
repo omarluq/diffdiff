@@ -35,6 +35,20 @@ const (
 	StatusUntracked
 )
 
+// LoadState tracks whether a file's diff content has been built. The file list
+// can be shown from a cheap status-only scan (Unloaded) and each file's hunks and
+// counts filled in lazily (Loaded) without blocking the first paint.
+type LoadState uint8
+
+const (
+	// StateUnloaded means only the path and status are known; Hunks and the
+	// Added/Deleted counts are not yet computed.
+	StateUnloaded LoadState = iota
+	// StateLoaded means the diff content has been built: Hunks and counts are
+	// authoritative (including a legitimately empty diff).
+	StateLoaded
+)
+
 // String renders a short status label.
 func (s Status) String() string {
 	switch s {
@@ -101,11 +115,28 @@ type File struct {
 	Hunks    []Hunk
 	Added    int
 	Deleted  int
+	// State reports whether Hunks and the counts have been built yet. A file from
+	// the cheap working-tree scan starts Unloaded and becomes Loaded once its diff
+	// is materialized on demand.
+	State LoadState
 }
 
 // IsRename reports whether the file moved path.
 func (f *File) IsRename() bool {
 	return f.OldPath != "" && f.OldPath != f.Path
+}
+
+// Loaded reports whether the file's diff content (hunks and counts) has been
+// built. While false the file carries only its path and a provisional status.
+func (f *File) Loaded() bool {
+	return f.State == StateLoaded
+}
+
+// HasCounts reports whether the Added/Deleted counts are authoritative, which is
+// exactly when the file has been loaded. The file list uses this to show a
+// placeholder until the counts stream in.
+func (f *File) HasCounts() bool {
+	return f.Loaded()
 }
 
 // TotalLines returns the number of rendered diff lines across all hunks. It is
