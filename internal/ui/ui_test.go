@@ -365,6 +365,24 @@ func TestDiffRowPoolHidesSurplusRuns(t *testing.T) {
 		"surplus pooled text runs are hidden when a sparser line recycles the row")
 }
 
+func TestSplitRowLayoutDoesNotStackRuns(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	// 3 left + 2 right runs = 5 visible runs. A Refresh followed by a Layout (the
+	// recycle-then-resize path) must rebuild the split columns in place, not stack
+	// a second set of runs over the first — the overlap bug on long split lines.
+	visible := ui.DiffRowSplitVisibleAfterLayout(
+		[]string{"foo", "bar", "baz"},
+		[]string{"qux", "quux"},
+		800,
+	)
+	assert.Equal(t, 5, visible,
+		"Layout rebuilds the split text pool in place rather than stacking a duplicate set of runs")
+}
+
 func TestTreeLeavesKeyedByFullPath(t *testing.T) {
 	t.Parallel()
 
