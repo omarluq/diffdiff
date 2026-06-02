@@ -253,6 +253,9 @@ func DiffRowSelectionBounds(right bool, width float32) (left, tintW float32, kin
 // device pixel so list rows tile without sub-pixel seams.
 func SnapUp(length, scale float32) float32 { return snapUp(length, scale) }
 
+// FuzzyOptions re-exports the picker's fuzzy option filter for tests.
+func FuzzyOptions(options []string, query string) []string { return fuzzyOptions(options, query) }
+
 // WindowRun and RuneSlice re-export the horizontal-window helpers for tests.
 func WindowRun(text string, runes, col, hScroll, maxCols int) (visible string, screenCol int, ok bool) {
 	return windowRun(text, runes, col, hScroll, maxCols)

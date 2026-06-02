@@ -457,6 +457,20 @@ func TestSplitHoverHighlightsOnlyHoveredColumn(t *testing.T) {
 	assert.True(t, leftColored, "the left-column hover uses the left cell's kind color")
 }
 
+func TestFuzzyOptionsFiltersAndRanks(t *testing.T) {
+	t.Parallel()
+
+	options := []string{"Dracula", "Nord", "One Dark", "GitHub Dark", "Solarized Light"}
+
+	assert.Equal(t, options, ui.FuzzyOptions(options, ""), "empty query returns every option in order")
+
+	drac := ui.FuzzyOptions(options, "drac")
+	require.NotEmpty(t, drac, "a matching query returns results")
+	assert.Equal(t, "Dracula", drac[0], "fuzzy matches Dracula")
+
+	assert.Empty(t, ui.FuzzyOptions(options, "zzxqq"), "an unmatched query returns nothing")
+}
+
 func TestSnapUpAlignsToDevicePixels(t *testing.T) {
 	t.Parallel()
 

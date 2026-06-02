@@ -53,3 +53,33 @@ func indexSet(indexes []int) map[int]bool {
 
 	return set
 }
+
+// fuzzyOptions returns the options matching query in descending score order, or
+// all options in their original order for an empty query. It powers the filter
+// box in the theme and font pickers.
+func fuzzyOptions(options []string, query string) []string {
+	if query == "" {
+		return options
+	}
+
+	matches := fuzzy.Find(query, options)
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if match.Index >= 0 && match.Index < len(options) {
+			out = append(out, options[match.Index])
+		}
+	}
+
+	return out
+}
+
+// indexOf returns the position of target in options, or -1 when absent.
+func indexOf(options []string, target string) int {
+	for index, option := range options {
+		if option == target {
+			return index
+		}
+	}
+
+	return -1
+}
