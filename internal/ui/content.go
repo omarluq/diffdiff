@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/samber/lo"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/highlight"
@@ -260,7 +261,7 @@ func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, ac
 	popUp = widget.NewPopUp(container.NewBorder(filter, nil, nil, nil, scroll), canvas)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+anchor.Size().Height))
-	scrollToActive(scroll, box, len(options), indexOf(options, active), viewport)
+	scrollToActive(scroll, box, len(options), lo.IndexOf(options, active), viewport)
 	canvas.Focus(filter)
 }
 
