@@ -158,14 +158,21 @@ func (v *DiffView) buildList() {
 // row forwards here because, as the innermost Scrollable, it receives the event
 // instead of the list, so the vertical part must be replayed onto the list.
 func (v *DiffView) scrollContent(event *fyne.ScrollEvent) {
-	if event.Scrolled.DY != 0 {
-		v.list.ScrollToOffset(v.list.GetScrollOffset() - event.Scrolled.DY)
-	}
-	if event.Scrolled.DX != 0 && v.hbar.Visible() {
+	dx, dy := event.Scrolled.DX, event.Scrolled.DY
+
+	// Axis lock: a horizontal-dominant gesture scrolls only horizontally, so a
+	// sideways trackpad swipe with vertical noise pans cleanly instead of also
+	// jerking the list (which made horizontal feel broken over the content).
+	if dx != 0 && math.Abs(float64(dx)) >= math.Abs(float64(dy)) && v.hbar.Visible() {
 		v.hbar.Scrolled(&fyne.ScrollEvent{
 			PointEvent: event.PointEvent,
-			Scrolled:   fyne.Delta{DX: event.Scrolled.DX, DY: 0},
+			Scrolled:   fyne.Delta{DX: dx, DY: 0},
 		})
+
+		return
+	}
+	if dy != 0 {
+		v.list.ScrollToOffset(v.list.GetScrollOffset() - dy)
 	}
 }
 
