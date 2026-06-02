@@ -2,7 +2,8 @@
 
 These monospace programming fonts are embedded (`//go:embed fonts/*.ttf`) and
 shipped with diffdiff. All are redistributable under permissive licenses. Each
-font is the unmodified upstream Regular weight.
+file is the unmodified upstream Regular weight, or a variable font rendered at
+its default (Regular) instance.
 
 > For a public release, include each font's full upstream license text
 > (e.g. the project's `OFL.txt`) alongside the binary to satisfy attribution
@@ -21,3 +22,23 @@ font is the unmodified upstream Regular weight.
 | Space Mono | OFL-1.1 | https://github.com/googlefonts/spacemono |
 | Anonymous Pro | OFL-1.1 | https://www.marksimonson.com/fonts/view/anonymous-pro |
 | DM Mono | OFL-1.1 | https://github.com/googlefonts/dm-mono |
+| Fira Code | OFL-1.1 | https://github.com/tonsky/FiraCode |
+| Cascadia Code | OFL-1.1 | https://github.com/microsoft/cascadia-code |
+| Inconsolata | OFL-1.1 | https://github.com/googlefonts/Inconsolata |
+| Cousine | OFL-1.1 | https://github.com/google/fonts/tree/main/ofl/cousine |
+| Overpass Mono | OFL-1.1 | https://github.com/RedHatOfficial/Overpass |
+| Spline Sans Mono | OFL-1.1 | https://github.com/SorkinType/SplineSansMono |
+| Red Hat Mono | OFL-1.1 | https://github.com/RedHatOfficial/RedHatFont |
+| Noto Sans Mono | OFL-1.1 | https://github.com/notofonts/latin-greek-cyrillic |
+| B612 Mono | OFL-1.1 | https://github.com/polarsys/b612 |
+| Martian Mono | OFL-1.1 | https://github.com/evilmartians/mono |
+| Azeret Mono | OFL-1.1 | https://github.com/displaay/Azeret |
+| Fragment Mono | OFL-1.1 | https://github.com/weiweihuanghuang/fragment-mono |
+| Nanum Gothic Coding | OFL-1.1 | https://github.com/naver/nanumfont |
+| Share Tech Mono | OFL-1.1 | https://github.com/google/fonts/tree/main/ofl/sharetechmono |
+| VT323 | OFL-1.1 | https://github.com/phoikoi/VT323 |
+| Courier Prime | OFL-1.1 | https://github.com/quoteunquoteapps/CourierPrime |
+| Oxygen Mono | OFL-1.1 | https://github.com/KDE/oxygen-fonts |
+| Major Mono Display | OFL-1.1 | https://github.com/googlefonts/major-mono |
+| Atkinson Hyperlegible Mono | OFL-1.1 | https://github.com/googlefonts/atkinson-hyperlegible |
+| Sometype Mono | OFL-1.1 | https://github.com/google/fonts/tree/main/ofl/sometypemono |
