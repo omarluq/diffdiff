@@ -85,8 +85,14 @@ func (r *diffRowRenderer) layoutGutters(line diff.Line) {
 	r.sign.Resize(fyne.NewSize(metrics.signW, metrics.height))
 }
 
-// buildEmphasis lays an emphasis rectangle behind each intra-line change run,
-// sized by the run's rune count at the mono advance.
+// unifiedCols is how many glyph columns of content fit from the content origin to
+// the row's right edge — the visible window width for a unified line.
+func (r *diffRowRenderer) unifiedCols() int {
+	return columnsFor(r.width, r.row.metrics.contentX, r.row.metrics)
+}
+
+// buildEmphasis lays an emphasis rectangle behind each intra-line change run that
+// falls in the visible horizontal window, sized by its on-screen rune count.
 func (r *diffRowRenderer) buildEmphasis(line diff.Line) {
 	emphColor := emphasisColor(r.row.palette, line.Kind)
 	if len(line.Segments) == 0 || emphColor == (color.NRGBA{}) {
@@ -94,14 +100,17 @@ func (r *diffRowRenderer) buildEmphasis(line diff.Line) {
 	}
 
 	metrics := r.row.metrics
+	maxCols := r.unifiedCols()
 	col := 0
 	for _, seg := range line.Segments {
 		runes := utf8.RuneCountInString(seg.Text)
 		if seg.Intraline && runes > 0 {
-			rect := r.acquireEmph()
-			rect.FillColor = emphColor
-			rect.Move(fyne.NewPos(metrics.contentX+float32(col)*metrics.advance, 0))
-			rect.Resize(fyne.NewSize(float32(runes)*metrics.advance, metrics.height))
+			if vis, screenCol, ok := windowRun(seg.Text, runes, col, r.row.hScroll, maxCols); ok {
+				rect := r.acquireEmph()
+				rect.FillColor = emphColor
+				rect.Move(fyne.NewPos(metrics.contentX+float32(screenCol)*metrics.advance, 0))
+				rect.Resize(fyne.NewSize(float32(utf8.RuneCountInString(vis))*metrics.advance, metrics.height))
+			}
 		}
 		col += runes
 	}
@@ -118,32 +127,39 @@ func (r *diffRowRenderer) buildTexts(line diff.Line) {
 	r.buildPlainText(line.Content)
 }
 
-// buildHighlightedTexts positions one pooled text per highlight token, advancing
-// the column cursor by each token's rune count.
+// buildHighlightedTexts positions one pooled text per highlight token, windowed to
+// the visible horizontal range so only on-screen glyphs are laid out.
 func (r *diffRowRenderer) buildHighlightedTexts() {
 	metrics := r.row.metrics
+	maxCols := r.unifiedCols()
 	col := 0
 	for _, tok := range r.row.data.tokens {
 		runes := utf8.RuneCountInString(tok.Text)
 		if runes == 0 {
 			continue
 		}
-		txt := r.acquireText()
-		setMonoText(txt, tok.Text, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
-		txt.Move(fyne.NewPos(metrics.contentX+float32(col)*metrics.advance, 0))
+		if vis, screenCol, ok := windowRun(tok.Text, runes, col, r.row.hScroll, maxCols); ok {
+			txt := r.acquireText()
+			setMonoText(txt, vis, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
+			txt.Move(fyne.NewPos(metrics.contentX+float32(screenCol)*metrics.advance, 0))
+		}
 		col += runes
 	}
 }
 
-// buildPlainText renders the whole line in the foreground color when no syntax
-// tokens are present (e.g. before highlighting finishes or for plain text).
+// buildPlainText renders the line in the foreground color when no syntax tokens
+// are present (e.g. before highlighting finishes), windowed to the visible range.
 func (r *diffRowRenderer) buildPlainText(content string) {
 	if content == "" {
 		return
 	}
-	txt := r.acquireText()
-	setMonoText(txt, content, r.row.palette.foreground, r.row.textSize, false, false)
-	txt.Move(fyne.NewPos(r.row.metrics.contentX, 0))
+	metrics := r.row.metrics
+	runes := utf8.RuneCountInString(content)
+	if vis, screenCol, ok := windowRun(content, runes, 0, r.row.hScroll, r.unifiedCols()); ok {
+		txt := r.acquireText()
+		setMonoText(txt, vis, r.row.palette.foreground, r.row.textSize, false, false)
+		txt.Move(fyne.NewPos(metrics.contentX+float32(screenCol)*metrics.advance, 0))
+	}
 }
 
 // gutterLabel renders a 1-based line number, or blank for the zero sentinel.
@@ -325,11 +341,13 @@ func (r *diffRowRenderer) appendCellEmphasis(cell *splitCell, contentX float32, 
 	col := 0
 	for _, seg := range cell.line.Segments {
 		runes := utf8.RuneCountInString(seg.Text)
-		if seg.Intraline && runes > 0 && col < maxCols {
-			rect := r.acquireEmph()
-			rect.FillColor = emphColor
-			rect.Move(fyne.NewPos(contentX+float32(col)*metrics.advance, 0))
-			rect.Resize(fyne.NewSize(float32(min(runes, maxCols-col))*metrics.advance, metrics.height))
+		if seg.Intraline && runes > 0 {
+			if vis, screenCol, ok := windowRun(seg.Text, runes, col, r.row.hScroll, maxCols); ok {
+				rect := r.acquireEmph()
+				rect.FillColor = emphColor
+				rect.Move(fyne.NewPos(contentX+float32(screenCol)*metrics.advance, 0))
+				rect.Resize(fyne.NewSize(float32(utf8.RuneCountInString(vis))*metrics.advance, metrics.height))
+			}
 		}
 		col += runes
 	}
@@ -344,6 +362,42 @@ func columnsFor(edge, contentX float32, metrics rowMetrics) int {
 	}
 
 	return int(avail / metrics.advance)
+}
+
+// windowRun clips a run occupying logical columns [col, col+runes) to the visible
+// horizontal window [hScroll, hScroll+maxCols). It returns the on-screen slice of
+// the run, the screen column (0-based from the content origin) where it begins,
+// and false when none of the run is in the window. This single helper does both
+// the horizontal-scroll offset (hScroll) and the right-edge clip (maxCols), so a
+// line renders only its visible glyphs under a frozen gutter.
+func windowRun(text string, runes, col, hScroll, maxCols int) (visible string, screenCol int, ok bool) {
+	start := max(col, hScroll)
+	end := min(col+runes, hScroll+maxCols)
+	if start >= end {
+		return "", 0, false
+	}
+
+	return runeSlice(text, start-col, end-col), start - hScroll, true
+}
+
+// runeSlice returns runes [from, to) of s, counted by rune so multibyte content
+// is sliced on rune boundaries. from/to are clamped by the caller via windowRun.
+func runeSlice(s string, from, to int) string {
+	start, idx := -1, 0
+	for bytePos := range s {
+		if idx == from {
+			start = bytePos
+		}
+		if idx == to {
+			return s[start:bytePos]
+		}
+		idx++
+	}
+	if start < 0 {
+		return ""
+	}
+
+	return s[start:]
 }
 
 // splitCellBg tints a split cell by its line kind; an absent or context cell is
@@ -393,52 +447,29 @@ func (r *diffRowRenderer) appendCellTexts(cell *splitCell, contentX float32, max
 	metrics := r.row.metrics
 	col := 0
 	for _, tok := range cell.tokens {
-		if col >= maxCols {
-			break
-		}
 		runes := utf8.RuneCountInString(tok.Text)
 		if runes == 0 {
 			continue
 		}
-		text := tok.Text
-		if col+runes > maxCols {
-			text = firstRunes(tok.Text, maxCols-col)
+		if vis, screenCol, ok := windowRun(tok.Text, runes, col, r.row.hScroll, maxCols); ok {
+			txt := r.acquireText()
+			setMonoText(txt, vis, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
+			txt.Move(fyne.NewPos(contentX+float32(screenCol)*metrics.advance, 0))
 		}
-		txt := r.acquireText()
-		setMonoText(txt, text, tok.Color, r.row.textSize, tok.Bold, tok.Italic)
-		txt.Move(fyne.NewPos(contentX+float32(col)*metrics.advance, 0))
 		col += runes
 	}
 }
 
 // appendCellPlain renders a split cell's content as a single foreground run,
-// clipped to maxCols, used before highlight tokens arrive.
+// windowed to the visible range, used before highlight tokens arrive.
 func (r *diffRowRenderer) appendCellPlain(content string, contentX float32, maxCols int) {
 	if content == "" {
 		return
 	}
-	text := content
-	if utf8.RuneCountInString(content) > maxCols {
-		text = firstRunes(content, maxCols)
+	runes := utf8.RuneCountInString(content)
+	if vis, screenCol, ok := windowRun(content, runes, 0, r.row.hScroll, maxCols); ok {
+		txt := r.acquireText()
+		setMonoText(txt, vis, r.row.palette.foreground, r.row.textSize, false, false)
+		txt.Move(fyne.NewPos(contentX+float32(screenCol)*r.row.metrics.advance, 0))
 	}
-	txt := r.acquireText()
-	setMonoText(txt, text, r.row.palette.foreground, r.row.textSize, false, false)
-	txt.Move(fyne.NewPos(contentX, 0))
-}
-
-// firstRunes returns the first n runes of s (the whole string when it is
-// shorter), used to clip overflowing split-column content.
-func firstRunes(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	count := 0
-	for index := range s {
-		if count == n {
-			return s[:index]
-		}
-		count++
-	}
-
-	return s
 }

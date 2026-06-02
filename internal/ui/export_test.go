@@ -206,19 +206,60 @@ func DiffRowSplitHoverBounds(x, width float32) (left, hoverW float32, kindColore
 		renderer.hover.FillColor == hoverColor(pal, cellKind(cell))
 }
 
+// WindowRun and RuneSlice re-export the horizontal-window helpers for tests.
+func WindowRun(text string, runes, col, hScroll, maxCols int) (visible string, screenCol int, ok bool) {
+	return windowRun(text, runes, col, hScroll, maxCols)
+}
+
+// RuneSlice re-exports runeSlice for tests.
+func RuneSlice(s string, from, to int) string { return runeSlice(s, from, to) }
+
+// DiffRowUnifiedVisibleText renders a unified line at horizontal offset hScroll
+// and returns the first visible text run, so tests can confirm the content window
+// skips the scrolled-past leading runes (the gutter, rendered separately, is not
+// included). A wide viewport keeps the clip from interfering.
+func DiffRowUnifiedVisibleText(content string, hScroll int) string {
+	metrics := rowMetrics{advance: 8, height: 16, padding: 0, gutterW: 0, signW: 0, contentX: 0}
+	dr := newDiffRow(metrics, palette{foreground: color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}})
+	dr.hScroll = hScroll
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return "<err>"
+	}
+
+	dr.data = row{
+		kind: rowLine,
+		line: diff.Line{Kind: diff.LineContext, OldNum: 1, NewNum: 1, Content: content, Segments: nil},
+	}
+	dr.hasData = true
+	renderer.width = 400
+	renderer.Refresh()
+
+	for _, txt := range renderer.texts {
+		if txt.Visible() && txt.Text != "" {
+			return txt.Text
+		}
+	}
+
+	return ""
+}
+
 // DiffRowVisibleTextRuns applies first then second as the highlighted tokens of a
 // single recycled diff row and returns how many pooled text runs are visible
 // afterward. It verifies the renderer's pooling invariant: text runs left over
 // from a denser line must be hidden when a sparser line reuses the widget, so the
 // visible count equals len(second), not the high-water mark.
 func DiffRowVisibleTextRuns(first, second []string) int {
-	// Metrics are irrelevant to the pooling invariant (only positions depend on
-	// them), so a zero value avoids a computeMetrics call here.
-	dr := newDiffRow(rowMetrics{}, palette{})
+	// Rendering now windows to the visible width, so the row needs a real advance
+	// and a viewport wide enough that every single-rune run falls inside the
+	// window; the pooling invariant (hiding surplus runs) is what we measure.
+	metrics := rowMetrics{advance: 8, height: 16, padding: 0, gutterW: 0, signW: 0, contentX: 0}
+	dr := newDiffRow(metrics, palette{})
 	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
 	if !ok {
 		return -1
 	}
+	renderer.width = 400
 
 	apply := func(runs []string) {
 		dr.data = row{

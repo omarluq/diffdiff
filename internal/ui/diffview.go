@@ -3,7 +3,9 @@ package ui
 import (
 	"fmt"
 	"image/color"
+	"math"
 	"strings"
+	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -14,6 +16,10 @@ import (
 	"github.com/omarluq/diffdiff/internal/highlight"
 	"github.com/omarluq/diffdiff/internal/theme"
 )
+
+// hbarThickness is the height reserved for the horizontal scrollbar strip under
+// the diff; it is only laid out when a line overflows the viewport.
+const hbarThickness float32 = 14
 
 // gutterDigits reserves room for line numbers; six digits covers files past a
 // hundred thousand lines without reflowing the gutter mid-file.
@@ -43,6 +49,15 @@ type DiffView struct {
 	loading *canvas.Text
 	holder  *fyne.Container
 
+	// Horizontal scrolling: hScrollCols is the shared offset in glyph columns;
+	// maxRunes is the widest line's rune count (sets the scroll range and whether
+	// content overflows). hbar is a native horizontal scrollbar driven by a wide
+	// transparent spacer; it is shown only when a line overflows the viewport.
+	hScrollCols int
+	maxRunes    int
+	hbar        *container.Scroll
+	hspacer     *canvas.Rectangle
+
 	// split selects side-by-side layout over the unified (stacked) layout. file
 	// and thm retain the current input so a layout toggle can re-flatten in place.
 	split bool
@@ -71,6 +86,10 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 		binary:      nil,
 		loading:     nil,
 		holder:      nil,
+		hScrollCols: 0,
+		maxRunes:    0,
+		hbar:        nil,
+		hspacer:     nil,
 		split:       false,
 		file:        nil,
 		thm:         nil,
@@ -93,7 +112,7 @@ func (v *DiffView) buildList() {
 			if !ok || id < 0 || id >= len(v.rows) {
 				return
 			}
-			dr.setRow(&v.rows[id], v.palette, v.metrics)
+			dr.setRow(&v.rows[id], v.palette, v.metrics, v.hScrollCols)
 		},
 	)
 	v.list.HideSeparators = true
@@ -106,11 +125,68 @@ func (v *DiffView) buildList() {
 	v.loading.Alignment = fyne.TextAlignCenter
 	v.loading.Hide()
 
-	v.holder = container.NewStack(
+	// A native horizontal scrollbar driven by a wide transparent spacer: dragging
+	// it reports an offset, which onHScroll converts to a glyph-column offset that
+	// every visible row re-windows to. Hidden until a line overflows.
+	v.hspacer = canvas.NewRectangle(color.Transparent)
+	v.hspacer.SetMinSize(fyne.NewSize(0, hbarThickness))
+	v.hbar = container.NewHScroll(v.hspacer)
+	v.hbar.OnScrolled = v.onHScroll
+	v.hbar.Hide()
+
+	center := container.NewStack(
 		v.list,
 		container.NewCenter(v.binary),
 		container.NewCenter(v.loading),
 	)
+	v.holder = container.NewBorder(nil, v.hbar, nil, nil, center)
+}
+
+// Resize lays out the view and recomputes whether the horizontal scrollbar is
+// needed for the new width (a wider viewport may remove the overflow).
+func (v *DiffView) Resize(size fyne.Size) {
+	v.BaseWidget.Resize(size)
+	v.updateHBar()
+}
+
+// onHScroll maps the scrollbar's pixel offset to a glyph-column offset and, when
+// it changes, re-windows every visible row by refreshing the list.
+func (v *DiffView) onHScroll(pos fyne.Position) {
+	if v.metrics.advance <= 0 {
+		return
+	}
+	col := int(math.Round(float64(pos.X / v.metrics.advance)))
+	col = max(0, min(col, v.maxRunes))
+	if col == v.hScrollCols {
+		return
+	}
+	v.hScrollCols = col
+	v.list.Refresh()
+}
+
+// updateHBar sizes the scrollbar spacer to the widest line and shows the bar only
+// when content overflows the viewport; otherwise it hides the bar and resets the
+// horizontal offset so a narrower file never stays scrolled.
+func (v *DiffView) updateHBar() {
+	advance := v.metrics.advance
+	viewport := v.Size().Width
+	contentPx := v.metrics.contentX + float32(v.maxRunes)*advance
+
+	if advance <= 0 || viewport <= 0 || contentPx <= viewport {
+		if v.hScrollCols != 0 {
+			v.hScrollCols = 0
+			v.list.Refresh()
+		}
+		v.hbar.Offset = fyne.NewPos(0, 0)
+		v.hbar.Hide()
+
+		return
+	}
+
+	v.hspacer.SetMinSize(fyne.NewSize(contentPx, hbarThickness))
+	v.hspacer.Refresh()
+	v.hbar.Show()
+	v.hbar.Refresh()
 }
 
 // CreateRenderer renders the list/binary holder.
@@ -258,34 +334,66 @@ func (v *DiffView) flattenFile(file *diff.File) []row {
 }
 
 // showRows swaps in a new row model and refreshes the list, hiding the notices.
+// It resets the horizontal scroll to the left and recomputes the scrollbar for
+// the new content's widest line.
 func (v *DiffView) showRows(rows []row) {
 	v.rows = rows
+	v.maxRunes = maxLineRunes(rows)
+	v.hScrollCols = 0
+	v.hbar.Offset = fyne.NewPos(0, 0)
 	v.binary.Hide()
 	v.loading.Hide()
 	v.list.Show()
 	v.list.Refresh()
 	v.list.ScrollToTop()
+	v.updateHBar()
+}
+
+// maxLineRunes returns the widest line's rune count across the rows (both columns
+// in split mode), which sets the horizontal scroll range and overflow check.
+func maxLineRunes(rows []row) int {
+	widest := 0
+	for i := range rows {
+		switch rows[i].kind {
+		case rowLine:
+			widest = max(widest, utf8.RuneCountInString(rows[i].line.Content))
+		case rowSplit:
+			if rows[i].left.present {
+				widest = max(widest, utf8.RuneCountInString(rows[i].left.line.Content))
+			}
+			if rows[i].right.present {
+				widest = max(widest, utf8.RuneCountInString(rows[i].right.line.Content))
+			}
+		case rowSeparator:
+		}
+	}
+
+	return widest
 }
 
 // showBinary clears rows and reveals the centered binary-file notice.
 func (v *DiffView) showBinary() {
 	v.rows = nil
+	v.maxRunes = 0
 	v.list.Refresh()
 	v.list.Hide()
 	v.loading.Hide()
 	v.binary.Show()
 	v.binary.Refresh()
+	v.updateHBar()
 }
 
 // showLoading clears rows and reveals the centered "loading" notice while a
 // selected file's diff is still being built in the background.
 func (v *DiffView) showLoading() {
 	v.rows = nil
+	v.maxRunes = 0
 	v.list.Refresh()
 	v.list.Hide()
 	v.binary.Hide()
 	v.loading.Show()
 	v.loading.Refresh()
+	v.updateHBar()
 }
 
 // flatten turns a file's hunks into a flat row slice: a separator row precedes

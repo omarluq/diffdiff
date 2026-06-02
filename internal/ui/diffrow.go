@@ -91,6 +91,10 @@ type diffRow struct {
 	// column under the pointer (hoverCol).
 	hovered  bool
 	hoverCol int
+	// hScroll is the shared horizontal scroll offset in glyph columns: content
+	// renders starting hScroll runes in (the gutter stays fixed). Set per refresh
+	// from DiffView so every visible row scrolls together.
+	hScroll int
 }
 
 // rowMetrics holds the monospace measurements a row needs to position cells.
@@ -123,11 +127,14 @@ func newDiffRow(metrics rowMetrics, pal palette) *diffRow {
 // setRow swaps in new content and refreshes. metrics is re-applied too so a
 // recycled row picks up new monospace measurements after a theme/font change
 // (the list reuses widgets rather than recreating them). data is taken by
-// pointer to avoid copying the wide row struct on every recycle.
-func (dr *diffRow) setRow(data *row, pal palette, metrics rowMetrics) {
+// pointer to avoid copying the wide row struct on every recycle. hScroll is the
+// view's current horizontal offset, so a refresh after a horizontal scroll
+// re-windows every visible row together.
+func (dr *diffRow) setRow(data *row, pal palette, metrics rowMetrics, hScroll int) {
 	dr.data = *data
 	dr.palette = pal
 	dr.metrics = metrics
+	dr.hScroll = hScroll
 	dr.hasData = true
 	dr.Refresh()
 }
