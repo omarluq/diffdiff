@@ -204,15 +204,20 @@ func emphasisColor(pal palette, kind diff.LineKind) color.NRGBA {
 	}
 }
 
-// applyHover paints the hover tint for the row's current hover state: edge to
-// edge for a unified line, or just the hovered column of a split row, each in its
-// own kind color (brightened green/red for changes, the neutral overlay for
-// context). Hunk separators do not hover. It runs from both Refresh and Layout
-// because the split geometry depends on the row width. The tint sits above the
-// cell backgrounds but below emphasis and text (see Objects), so a hovered line
-// brightens without hiding its glyphs or intra-line emphasis.
-func (r *diffRowRenderer) applyHover() {
-	if !r.row.hovered || r.row.data.kind == rowSeparator {
+// applyTint paints the row's column tint for hover or selection: the hovered
+// column takes priority, otherwise the selected column (selCol) persists. It
+// covers a unified line edge to edge or just one split column, each in its own
+// kind color (brightened green/red for changes, the neutral overlay for context).
+// Hunk separators never tint. It runs from both Refresh and Layout because the
+// split geometry depends on the row width. The tint sits above the cell
+// backgrounds but below emphasis and text (see Objects), so a hovered or selected
+// line brightens without hiding its glyphs or intra-line emphasis.
+func (r *diffRowRenderer) applyTint() {
+	col := r.row.selCol
+	if r.row.hovered {
+		col = r.row.hoverCol
+	}
+	if col == colNone || r.row.data.kind == rowSeparator {
 		r.hover.Hide()
 
 		return
@@ -229,7 +234,7 @@ func (r *diffRowRenderer) applyHover() {
 	}
 
 	mid := r.width / 2
-	if r.row.hoverCol == hoverRight {
+	if col == hoverRight {
 		r.hover.FillColor = hoverColor(r.row.palette, cellKind(&r.row.data.right))
 		r.hover.Move(fyne.NewPos(mid, 0))
 		r.hover.Resize(fyne.NewSize(r.width-mid, height))

@@ -21,6 +21,10 @@ const (
 	hoverRight
 )
 
+// colNone marks "no column highlighted" for the selection state (selCol), distinct
+// from hoverWhole (0), which is a real target for unified rows.
+const colNone = -1
+
 // rowKind distinguishes a hunk separator from an ordinary diff line so the
 // renderer can pick its layout without re-inspecting the underlying model.
 type rowKind uint8
@@ -99,6 +103,14 @@ type diffRow struct {
 	// routes vertical to the list and horizontal to the scrollbar. The row is the
 	// innermost Scrollable, so it receives the event instead of the list.
 	onScroll func(*fyne.ScrollEvent)
+	// Selection mirrors hover but persists on click: selCol is the selected column
+	// (hoverLeft/Right, or hoverWhole for a unified row), or colNone when this row
+	// is not the selected one. id is the row's list index, reported on tap; onTap
+	// asks the view to (de)select the tapped column. Tapping the row (innermost
+	// Tappable) suppresses the list's flat gray selection.
+	id      int
+	selCol  int
+	onTap   func(id, col int)
 }
 
 // rowMetrics holds the monospace measurements a row needs to position cells.
@@ -122,6 +134,7 @@ func newDiffRow(metrics rowMetrics, pal palette) *diffRow {
 		data:       row{kind: rowLine, header: "", line: diff.Line{}, tokens: nil, gutterW: 0},
 		hasData:    false,
 		textSize:   diffTextSize,
+		selCol:     colNone,
 	}
 	dr.ExtendBaseWidget(dr)
 
@@ -186,6 +199,20 @@ func (dr *diffRow) Scrolled(event *fyne.ScrollEvent) {
 	if dr.onScroll != nil {
 		dr.onScroll(event)
 	}
+}
+
+// Assert diffRow handles taps so selection is per-column and kind-aware (matching
+// hover) instead of the list's flat gray whole-row highlight; as the innermost
+// Tappable, it receives the tap and the list never selects.
+var _ fyne.Tappable = (*diffRow)(nil)
+
+// Tapped selects the tapped column (the same left/right split mapping as hover),
+// ignoring hunk-separator rows.
+func (dr *diffRow) Tapped(event *fyne.PointEvent) {
+	if dr.onTap == nil || dr.data.kind == rowSeparator {
+		return
+	}
+	dr.onTap(dr.id, dr.hoverColumn(event.Position.X))
 }
 
 // hoverColumn maps a pointer X to the column it falls in: hoverWhole for unified
@@ -348,7 +375,7 @@ func (r *diffRowRenderer) Refresh() {
 	default:
 		r.refreshLine()
 	}
-	r.applyHover()
+	r.applyTint()
 	r.hideSurplus()
 	canvas.Refresh(r.row)
 }
@@ -370,7 +397,7 @@ func (r *diffRowRenderer) Layout(size fyne.Size) {
 		r.rebuildSplit(size.Width)
 	case rowLine:
 	}
-	r.applyHover()
+	r.applyTint()
 }
 
 // Objects returns every drawable in paint order: backgrounds (full-width unified
