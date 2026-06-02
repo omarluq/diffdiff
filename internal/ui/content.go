@@ -249,7 +249,13 @@ func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, ac
 
 	filter := widget.NewEntry()
 	filter.SetPlaceHolder("Filter…")
-	filter.OnChanged = rebuild
+	// Reset to the top on every filter change: the menu opens scrolled to the
+	// active option, so without this the (top-ranked) matches would render above
+	// the parked viewport and the list would look empty.
+	filter.OnChanged = func(query string) {
+		rebuild(query)
+		scroll.ScrollToTop()
+	}
 
 	popUp = widget.NewPopUp(container.NewBorder(filter, nil, nil, nil, scroll), canvas)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
