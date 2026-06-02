@@ -188,6 +188,68 @@ func emphasisColor(pal palette, kind diff.LineKind) color.NRGBA {
 	}
 }
 
+// applyHover paints the hover tint for the row's current hover state: edge to
+// edge for a unified line, or just the hovered column of a split row, each in its
+// own kind color (brightened green/red for changes, the neutral overlay for
+// context). Hunk separators do not hover. It runs from both Refresh and Layout
+// because the split geometry depends on the row width. The tint sits above the
+// cell backgrounds but below emphasis and text (see Objects), so a hovered line
+// brightens without hiding its glyphs or intra-line emphasis.
+func (r *diffRowRenderer) applyHover() {
+	if !r.row.hovered || r.row.data.kind == rowSeparator {
+		r.hover.Hide()
+
+		return
+	}
+	r.hover.Show()
+	height := r.row.metrics.height
+
+	if r.row.data.kind != rowSplit {
+		r.hover.FillColor = hoverColor(r.row.palette, r.row.data.line.Kind)
+		r.hover.Move(fyne.NewPos(0, 0))
+		r.hover.Resize(fyne.NewSize(r.width, height))
+
+		return
+	}
+
+	mid := r.width / 2
+	if r.row.hoverCol == hoverRight {
+		r.hover.FillColor = hoverColor(r.row.palette, cellKind(&r.row.data.right))
+		r.hover.Move(fyne.NewPos(mid, 0))
+		r.hover.Resize(fyne.NewSize(r.width-mid, height))
+
+		return
+	}
+	r.hover.FillColor = hoverColor(r.row.palette, cellKind(&r.row.data.left))
+	r.hover.Move(fyne.NewPos(0, 0))
+	r.hover.Resize(fyne.NewSize(mid, height))
+}
+
+// cellKind reports a split cell's line kind, treating an absent cell as context
+// so hovering a blank column shows the neutral tint rather than a stale color.
+func cellKind(cell *splitCell) diff.LineKind {
+	if !cell.present {
+		return diff.LineContext
+	}
+
+	return cell.line.Kind
+}
+
+// hoverColor is the hover tint for a line kind: the line's own brightened green or
+// red for changes, the neutral overlay for context (and any other kind).
+func hoverColor(pal palette, kind diff.LineKind) color.NRGBA {
+	switch kind {
+	case diff.LineAdded:
+		return pal.addHover
+	case diff.LineDeleted:
+		return pal.delHover
+	case diff.LineContext:
+		return pal.overlay
+	default:
+		return pal.overlay
+	}
+}
+
 // splitDividerWidth is the logical width of the rule between the two columns.
 const splitDividerWidth float32 = 1
 

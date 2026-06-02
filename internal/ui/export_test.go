@@ -115,6 +115,97 @@ func DiffRowSplitVisibleEmphasis() int {
 	return visible
 }
 
+// hoverTestPalette returns a palette with distinct, opaque add/del/overlay tints
+// and their derived hover colors, so hover-tint assertions can tell the kind
+// colors apart from the neutral gray.
+func hoverTestPalette() palette {
+	pal := palette{
+		addBg:   color.NRGBA{R: 0x12, G: 0x3a, B: 0x12, A: 0xff},
+		addEmph: color.NRGBA{R: 0x24, G: 0x74, B: 0x24, A: 0xff},
+		delBg:   color.NRGBA{R: 0x3a, G: 0x12, B: 0x12, A: 0xff},
+		delEmph: color.NRGBA{R: 0x74, G: 0x24, B: 0x24, A: 0xff},
+		overlay: color.NRGBA{R: 0x40, G: 0x40, B: 0x40, A: 0xff},
+	}
+	pal.addHover = hoverTint(pal.addBg, pal.addEmph)
+	pal.delHover = hoverTint(pal.delBg, pal.delEmph)
+
+	return pal
+}
+
+// DiffRowHoverIsKindColored builds a unified row of the given kind, hovers it edge
+// to edge, and reports whether the hover tint is shown, whether it equals that
+// kind's hover color, and whether it is the neutral gray overlay. It guards that a
+// hovered added/deleted line tints in its own color instead of washing out gray.
+func DiffRowHoverIsKindColored(kind diff.LineKind) (shown, matchesKind, isGray bool) {
+	pal := hoverTestPalette()
+	metrics := rowMetrics{advance: 8, height: 16, padding: 8, gutterW: 48, signW: 8, contentX: 112}
+	dr := newDiffRow(metrics, pal)
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return false, false, false
+	}
+
+	dr.data = row{kind: rowLine, line: diff.Line{Kind: kind, OldNum: 1, NewNum: 1, Content: "x", Segments: nil}}
+	dr.hasData = true
+	dr.hovered = true
+	dr.hoverCol = hoverWhole
+
+	renderer.width = 400
+	renderer.Refresh()
+	renderer.Layout(fyne.NewSize(400, metrics.height))
+
+	// FillColor is a color.Color holding the NRGBA set by applyHover; comparing the
+	// interface to the concrete NRGBA is well-defined and avoids a type assertion.
+	return renderer.hover.Visible(),
+		renderer.hover.FillColor == hoverColor(pal, kind),
+		renderer.hover.FillColor == pal.overlay
+}
+
+// DiffRowSplitHoverBounds builds a split row (deleted left, added right), maps the
+// pointer X to a column exactly as MouseIn does, renders, and returns the hover
+// rectangle's left edge and width plus whether its fill is the hovered column's
+// kind color. It guards per-column hover: one side's highlight never spans both.
+func DiffRowSplitHoverBounds(x, width float32) (left, hoverW float32, kindColored bool) {
+	pal := hoverTestPalette()
+	metrics := rowMetrics{advance: 8, height: 16, padding: 8, gutterW: 48, signW: 8, contentX: 112}
+	dr := newDiffRow(metrics, pal)
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return -1, -1, false
+	}
+
+	dr.data = row{
+		kind: rowSplit,
+		left: splitCell{
+			present: true,
+			line:    diff.Line{Kind: diff.LineDeleted, OldNum: 1, NewNum: 0, Content: "a", Segments: nil},
+			tokens:  nil, hlIndex: 0,
+		},
+		right: splitCell{
+			present: true,
+			line:    diff.Line{Kind: diff.LineAdded, OldNum: 0, NewNum: 1, Content: "b", Segments: nil},
+			tokens:  nil, hlIndex: 0,
+		},
+	}
+	dr.hasData = true
+	dr.Resize(fyne.NewSize(width, metrics.height)) // so hoverColumn sees the width
+	dr.hovered = true
+	dr.hoverCol = dr.hoverColumn(x)
+
+	renderer.width = width
+	renderer.Refresh()
+	renderer.Layout(fyne.NewSize(width, metrics.height))
+
+	cell := &dr.data.left
+	if dr.hoverCol == hoverRight {
+		cell = &dr.data.right
+	}
+
+	return renderer.hover.Position().X,
+		renderer.hover.Size().Width,
+		renderer.hover.FillColor == hoverColor(pal, cellKind(cell))
+}
+
 // DiffRowVisibleTextRuns applies first then second as the highlighted tokens of a
 // single recycled diff row and returns how many pooled text runs are visible
 // afterward. It verifies the renderer's pooling invariant: text runs left over

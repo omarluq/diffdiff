@@ -416,6 +416,47 @@ func TestPrefixExtentCoversFirstRows(t *testing.T) {
 	assert.Equal(t, 9002+64, deepNew, "deep new rows force a deep prefix")
 }
 
+func TestHoverTintFollowsLineKind(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	shown, matches, gray := ui.DiffRowHoverIsKindColored(diff.LineAdded)
+	require.True(t, shown, "hovering a line shows the hover tint")
+	assert.True(t, matches, "an added line hovers in its add color")
+	assert.False(t, gray, "an added line does not hover in the neutral gray overlay")
+
+	_, delMatches, delGray := ui.DiffRowHoverIsKindColored(diff.LineDeleted)
+	assert.True(t, delMatches, "a deleted line hovers in its delete color")
+	assert.False(t, delGray, "a deleted line does not hover gray")
+
+	_, ctxMatches, ctxGray := ui.DiffRowHoverIsKindColored(diff.LineContext)
+	assert.True(t, ctxMatches, "a context line hovers in the neutral overlay")
+	assert.True(t, ctxGray, "a context line hover is the gray overlay")
+}
+
+func TestSplitHoverHighlightsOnlyHoveredColumn(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	const width float32 = 800
+
+	// Pointer in the right half: the tint covers the right column only.
+	rightLeft, rightW, rightColored := ui.DiffRowSplitHoverBounds(width*0.75, width)
+	assert.InDelta(t, width/2, rightLeft, 0.5, "right-column hover starts at the divider")
+	assert.InDelta(t, width/2, rightW, 0.5, "right-column hover spans only the right half")
+	assert.True(t, rightColored, "the right-column hover uses the right cell's kind color")
+
+	// Pointer in the left half: the tint covers the left column only.
+	leftLeft, leftW, leftColored := ui.DiffRowSplitHoverBounds(width*0.25, width)
+	assert.InDelta(t, 0, leftLeft, 0.5, "left-column hover starts at the left edge")
+	assert.InDelta(t, width/2, leftW, 0.5, "left-column hover spans only the left half")
+	assert.True(t, leftColored, "the left-column hover uses the left cell's kind color")
+}
+
 func TestSplitRowRendersIntralineEmphasis(t *testing.T) {
 	t.Parallel()
 
