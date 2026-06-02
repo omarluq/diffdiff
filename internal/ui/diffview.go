@@ -412,6 +412,33 @@ func (v *DiffView) Relayout(thm *theme.Theme) {
 // file-load and font-relayout paths share one measurement point.
 func (v *DiffView) recomputeMetrics() {
 	v.metrics = computeMetrics(diffTextSize)
+	// Snap the row height to a whole device pixel. MeasureText returns a fractional
+	// height, so stacking rows at id*height drifts off the pixel grid and leaves a
+	// 1px seam between rows wherever the fraction crosses a pixel (~every few rows).
+	// Aligning to device pixels makes every row boundary land exactly on the grid.
+	v.metrics.height = snapUp(v.metrics.height, v.deviceScale())
+}
+
+// deviceScale is the canvas pixel ratio, used to snap row heights to whole device
+// pixels. It falls back to 1 before the view is attached to a canvas.
+func (v *DiffView) deviceScale() float32 {
+	if app := fyne.CurrentApp(); app != nil {
+		if c := app.Driver().CanvasForObject(v); c != nil {
+			return c.Scale()
+		}
+	}
+
+	return 1
+}
+
+// snapUp rounds a logical length up to a whole device pixel (length*scale rounded
+// up, then back to logical), so list rows tile on exact pixel boundaries.
+func snapUp(length, scale float32) float32 {
+	if scale <= 0 {
+		scale = 1
+	}
+
+	return float32(math.Ceil(float64(length*scale))) / scale
 }
 
 // SetSplit selects the split (side-by-side) or unified (stacked) layout. It
