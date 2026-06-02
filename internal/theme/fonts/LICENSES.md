@@ -2,8 +2,9 @@
 
 These monospace programming fonts are embedded (`//go:embed fonts/*.ttf`) and
 shipped with diffdiff. All are redistributable under permissive licenses. Each
-file is the unmodified upstream Regular weight, or a variable font rendered at
-its default (Regular) instance.
+entry is the unmodified upstream font file — either a static Regular weight or
+the upstream variable font file (used at its default Regular instance at render
+time); the variable file itself is bundled, not a rendered output.
 
 > For a public release, include each font's full upstream license text
 > (e.g. the project's `OFL.txt`) alongside the binary to satisfy attribution

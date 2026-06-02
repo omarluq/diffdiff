@@ -72,14 +72,3 @@ func fuzzyOptions(options []string, query string) []string {
 
 	return out
 }
-
-// indexOf returns the position of target in options, or -1 when absent.
-func indexOf(options []string, target string) int {
-	for index, option := range options {
-		if option == target {
-			return index
-		}
-	}
-
-	return -1
-}
