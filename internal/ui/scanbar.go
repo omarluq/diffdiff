@@ -46,6 +46,9 @@ func NewScanBar() *ScanBar {
 
 // Start begins the sweep on a background ticker. Call it on the UI goroutine.
 func (b *ScanBar) Start() {
+	if b.stop != nil {
+		return // already sweeping; don't orphan the running goroutine
+	}
 	stop := make(chan struct{})
 	b.stop = stop
 	go func() {

@@ -87,7 +87,7 @@ func runGUI(ctx context.Context) error {
 		ws:      nil,
 		cancel:  nil,
 	}
-	content.OnOpenProject(func(path string) { go sess.doOpen(path) })
+	content.OnOpenProject(func(path string) { go sess.doOpen(ctx, path) })
 
 	title := "diffdiff"
 	if repo != nil {
@@ -349,8 +349,9 @@ func (s *session) buildOne(ctx context.Context, working *git.WorkingSet, file *d
 
 // doOpen switches the active repository to the one at path, then defers to load,
 // which clears the panels, shows the scan progress dialog, and repaints. It runs
-// off the UI goroutine.
-func (s *session) doOpen(path string) {
+// off the UI goroutine. ctx is the application context (captured from runGUI), so
+// the build sweep this triggers is canceled on app shutdown like the initial one.
+func (s *session) doOpen(ctx context.Context, path string) {
 	repo, err := git.Open(path)
 	if err != nil {
 		s.reportError(oops.In("gui").Code("open_repo").With("path", path).Wrapf(err, "open repository"))
@@ -358,7 +359,7 @@ func (s *session) doOpen(path string) {
 		return
 	}
 
-	s.load(context.Background(), repo)
+	s.load(ctx, repo)
 }
 
 // remember records a project path in the recent list, logging persistence
