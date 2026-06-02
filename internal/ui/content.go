@@ -22,7 +22,7 @@ const splitOffset = 0.28
 const (
 	projectMenuWidth   float32 = 360
 	pickerWidth        float32 = 220
-	pickerVisibleItems         = 5
+	pickerVisibleItems         = 10
 )
 
 // Content is the top-level diff browser: a toolbar (hamburger menu + file filter
@@ -240,24 +240,10 @@ func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, ac
 	scroll := container.NewVScroll(box)
 	scroll.SetMinSize(fyne.NewSize(pickerWidth, viewport))
 
-	up := widget.NewIcon(fynetheme.MenuDropUpIcon())
-	down := widget.NewIcon(fynetheme.MenuDropDownIcon())
-	up.Hide()
-	down.Hide()
-	carets := container.NewBorder(container.NewCenter(up), container.NewCenter(down), nil, nil)
-
-	maxOffset := full - viewport
-	syncCarets := func(offset float32) {
-		setVisible(up, offset > 1)
-		setVisible(down, offset < maxOffset-1)
-	}
-	scroll.OnScrolled = func(pos fyne.Position) { syncCarets(pos.Y) }
-
-	popUp = widget.NewPopUp(container.NewStack(scroll, carets), canvas)
+	popUp = widget.NewPopUp(scroll, canvas)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+anchor.Size().Height))
 	scrollToActive(scroll, box, len(options), activeIndex, viewport)
-	syncCarets(scroll.Offset.Y)
 }
 
 // scrollToActive centers the active option in the picker's viewport so its
@@ -275,15 +261,6 @@ func scrollToActive(scroll *container.Scroll, box fyne.CanvasObject, count, acti
 
 	scroll.Offset = fyne.NewPos(0, offset)
 	scroll.Refresh()
-}
-
-// setVisible shows or hides a canvas object.
-func setVisible(obj fyne.CanvasObject, visible bool) {
-	if visible {
-		obj.Show()
-	} else {
-		obj.Hide()
-	}
 }
 
 // OnOpenProject registers a listener invoked when the user opens a project,
