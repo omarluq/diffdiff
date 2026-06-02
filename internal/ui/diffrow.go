@@ -95,6 +95,10 @@ type diffRow struct {
 	// renders starting hScroll runes in (the gutter stays fixed). Set per refresh
 	// from DiffView so every visible row scrolls together.
 	hScroll int
+	// onScroll forwards a wheel/trackpad scroll over this row to the view, which
+	// routes vertical to the list and horizontal to the scrollbar. The row is the
+	// innermost Scrollable, so it receives the event instead of the list.
+	onScroll func(*fyne.ScrollEvent)
 }
 
 // rowMetrics holds the monospace measurements a row needs to position cells.
@@ -170,6 +174,18 @@ func (dr *diffRow) MouseOut() {
 	}
 	dr.hovered = false
 	dr.Refresh()
+}
+
+// Assert diffRow handles scroll so it can route horizontal motion to the diff's
+// scrollbar while still scrolling the list vertically (it is the innermost
+// Scrollable under the pointer, so it receives the event instead of the list).
+var _ fyne.Scrollable = (*diffRow)(nil)
+
+// Scrolled forwards a wheel/trackpad scroll to the view's router.
+func (dr *diffRow) Scrolled(event *fyne.ScrollEvent) {
+	if dr.onScroll != nil {
+		dr.onScroll(event)
+	}
 }
 
 // hoverColumn maps a pointer X to the column it falls in: hoverWhole for unified

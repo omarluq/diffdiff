@@ -106,7 +106,12 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 func (v *DiffView) buildList() {
 	v.list = widget.NewList(
 		func() int { return len(v.rows) },
-		func() fyne.CanvasObject { return newDiffRow(v.metrics, v.palette) },
+		func() fyne.CanvasObject {
+			dr := newDiffRow(v.metrics, v.palette)
+			dr.onScroll = v.scrollContent
+
+			return dr
+		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
 			dr, ok := obj.(*diffRow)
 			if !ok || id < 0 || id >= len(v.rows) {
@@ -139,7 +144,29 @@ func (v *DiffView) buildList() {
 		container.NewCenter(v.binary),
 		container.NewCenter(v.loading),
 	)
-	v.holder = container.NewBorder(nil, v.hbar, nil, nil, center)
+	// Float the scrollbar over the bottom of the content rather than reserving a
+	// strip for it (which left a seam above a dead band). The filler is a plain
+	// transparent rectangle — not Scrollable/Hoverable — so wheel and hover events
+	// pass through to the list beneath it; only the thin bar at the bottom edge is
+	// interactive.
+	barOverlay := container.NewBorder(nil, v.hbar, nil, nil, canvas.NewRectangle(color.Transparent))
+	v.holder = container.NewStack(center, barOverlay)
+}
+
+// scrollContent routes a wheel/trackpad scroll over the diff: vertical to the
+// list, horizontal to the scrollbar (whose OnScrolled re-windows the rows). The
+// row forwards here because, as the innermost Scrollable, it receives the event
+// instead of the list, so the vertical part must be replayed onto the list.
+func (v *DiffView) scrollContent(event *fyne.ScrollEvent) {
+	if event.Scrolled.DY != 0 {
+		v.list.ScrollToOffset(v.list.GetScrollOffset() - event.Scrolled.DY)
+	}
+	if event.Scrolled.DX != 0 && v.hbar.Visible() {
+		v.hbar.Scrolled(&fyne.ScrollEvent{
+			PointEvent: event.PointEvent,
+			Scrolled:   fyne.Delta{DX: event.Scrolled.DX, DY: 0},
+		})
+	}
 }
 
 // Resize lays out the view and recomputes whether the horizontal scrollbar is
