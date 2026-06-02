@@ -206,6 +206,49 @@ func DiffRowSplitHoverBounds(x, width float32) (left, hoverW float32, kindColore
 		renderer.hover.FillColor == hoverColor(pal, cellKind(cell))
 }
 
+// DiffRowSelectionBounds builds a split row, marks one column selected (without
+// hovering), renders, and returns the tint rect's left edge, width, and whether
+// its fill is that column's kind color. Guards that selection mirrors hover:
+// per-column and kind-aware, not the flat gray whole-row highlight.
+func DiffRowSelectionBounds(right bool, width float32) (left, tintW float32, kindColored bool) {
+	pal := hoverTestPalette()
+	metrics := rowMetrics{advance: 8, height: 16, padding: 8, gutterW: 48, signW: 8, contentX: 112}
+	dr := newDiffRow(metrics, pal)
+	renderer, ok := dr.CreateRenderer().(*diffRowRenderer)
+	if !ok {
+		return -1, -1, false
+	}
+
+	dr.data = row{
+		kind: rowSplit,
+		left: splitCell{
+			present: true,
+			line:    diff.Line{Kind: diff.LineDeleted, OldNum: 1, NewNum: 0, Content: "a", Segments: nil},
+			tokens:  nil, hlIndex: 0,
+		},
+		right: splitCell{
+			present: true,
+			line:    diff.Line{Kind: diff.LineAdded, OldNum: 0, NewNum: 1, Content: "b", Segments: nil},
+			tokens:  nil, hlIndex: 0,
+		},
+	}
+	dr.hasData = true
+	dr.selCol = hoverLeft // selected (not hovered)
+	cell := &dr.data.left
+	if right {
+		dr.selCol = hoverRight
+		cell = &dr.data.right
+	}
+
+	renderer.width = width
+	renderer.Refresh()
+	renderer.Layout(fyne.NewSize(width, metrics.height))
+
+	return renderer.hover.Position().X,
+		renderer.hover.Size().Width,
+		renderer.hover.FillColor == hoverColor(pal, cellKind(cell))
+}
+
 // WindowRun and RuneSlice re-export the horizontal-window helpers for tests.
 func WindowRun(text string, runes, col, hScroll, maxCols int) (visible string, screenCol int, ok bool) {
 	return windowRun(text, runes, col, hScroll, maxCols)

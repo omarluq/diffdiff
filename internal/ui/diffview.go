@@ -58,6 +58,12 @@ type DiffView struct {
 	hbar        *container.Scroll
 	hspacer     *canvas.Rectangle
 
+	// Selection: selRow is the selected row index (-1 = none); selCol is which
+	// column of it is selected (hoverWhole for a unified row, hoverLeft/Right for a
+	// split column). The row renders this like a persistent hover.
+	selRow int
+	selCol int
+
 	// split selects side-by-side layout over the unified (stacked) layout. file
 	// and thm retain the current input so a layout toggle can re-flatten in place.
 	split bool
@@ -90,6 +96,8 @@ func NewDiffView(highlighter *highlight.Highlighter) *DiffView {
 		maxRunes:    0,
 		hbar:        nil,
 		hspacer:     nil,
+		selRow:      -1,
+		selCol:      colNone,
 		split:       false,
 		file:        nil,
 		thm:         nil,
@@ -109,6 +117,7 @@ func (v *DiffView) buildList() {
 		func() fyne.CanvasObject {
 			dr := newDiffRow(v.metrics, v.palette)
 			dr.onScroll = v.scrollContent
+			dr.onTap = v.selectColumn
 
 			return dr
 		},
@@ -117,6 +126,8 @@ func (v *DiffView) buildList() {
 			if !ok || id < 0 || id >= len(v.rows) {
 				return
 			}
+			dr.id = id
+			dr.selCol = v.selectedColumnFor(id)
 			dr.setRow(&v.rows[id], v.palette, v.metrics, v.hScrollCols)
 		},
 	)
@@ -174,6 +185,33 @@ func (v *DiffView) scrollContent(event *fyne.ScrollEvent) {
 	if dy != 0 {
 		v.list.ScrollToOffset(v.list.GetScrollOffset() - dy)
 	}
+}
+
+// selectColumn (de)selects the tapped column: tapping the already-selected column
+// clears the selection, otherwise it becomes the selection. A list refresh
+// re-renders the affected rows, which draw the selection like a persistent hover.
+func (v *DiffView) selectColumn(id, col int) {
+	if v.selRow == id && v.selCol == col {
+		v.selRow, v.selCol = -1, colNone
+	} else {
+		v.selRow, v.selCol = id, col
+	}
+	v.list.Refresh()
+}
+
+// selectedColumnFor returns the selected column for row id, or colNone when that
+// row is not the selected one. The list update callback feeds it to each row.
+func (v *DiffView) selectedColumnFor(id int) int {
+	if id == v.selRow {
+		return v.selCol
+	}
+
+	return colNone
+}
+
+// clearSelection drops any selection (used when the row model changes).
+func (v *DiffView) clearSelection() {
+	v.selRow, v.selCol = -1, colNone
 }
 
 // Resize lays out the view and recomputes whether the horizontal scrollbar is
@@ -375,6 +413,7 @@ func (v *DiffView) showRows(rows []row) {
 	v.maxRunes = maxLineRunes(rows)
 	v.hScrollCols = 0
 	v.hbar.Offset = fyne.NewPos(0, 0)
+	v.clearSelection()
 	v.binary.Hide()
 	v.loading.Hide()
 	v.list.Show()

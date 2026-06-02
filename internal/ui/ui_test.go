@@ -503,6 +503,27 @@ func TestHorizontalScrollWindowsContent(t *testing.T) {
 		"scrolling right by 3 columns drops the first three runes")
 }
 
+func TestSelectionMirrorsHoverPerColumn(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	const width float32 = 800
+
+	// Selecting the right column tints only the right half, in the right cell's
+	// kind color — like hover, not a flat gray whole-row selection.
+	rLeft, rWidth, rColored := ui.DiffRowSelectionBounds(true, width)
+	assert.InDelta(t, width/2, rLeft, 0.5, "right-column selection starts at the divider")
+	assert.InDelta(t, width/2, rWidth, 0.5, "right-column selection spans only the right half")
+	assert.True(t, rColored, "right-column selection uses the right cell's kind color")
+
+	lLeft, lWidth, lColored := ui.DiffRowSelectionBounds(false, width)
+	assert.InDelta(t, 0, lLeft, 0.5, "left-column selection starts at the left edge")
+	assert.InDelta(t, width/2, lWidth, 0.5, "left-column selection spans only the left half")
+	assert.True(t, lColored, "left-column selection uses the left cell's kind color")
+}
+
 func TestSplitRowRendersIntralineEmphasis(t *testing.T) {
 	t.Parallel()
 
