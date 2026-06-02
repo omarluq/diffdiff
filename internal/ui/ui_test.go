@@ -457,6 +457,52 @@ func TestSplitHoverHighlightsOnlyHoveredColumn(t *testing.T) {
 	assert.True(t, leftColored, "the left-column hover uses the left cell's kind color")
 }
 
+func TestRuneSlice(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "el", ui.RuneSlice("hello", 1, 3))
+	assert.Equal(t, "él", ui.RuneSlice("héllo", 1, 3), "slices on rune boundaries for multibyte text")
+	assert.Equal(t, "abc", ui.RuneSlice("abc", 0, 3), "to beyond length returns the rest")
+	assert.Equal(t, "", ui.RuneSlice("abc", 5, 9), "from beyond length is empty")
+}
+
+func TestWindowRun(t *testing.T) {
+	t.Parallel()
+
+	// Window [hScroll, hScroll+maxCols) over a 6-rune run at column 0.
+	vis, screen, ok := ui.WindowRun("abcdef", 6, 0, 0, 3)
+	require.True(t, ok)
+	assert.Equal(t, "abc", vis)
+	assert.Equal(t, 0, screen, "an unscrolled run starts at the content origin")
+
+	vis, screen, ok = ui.WindowRun("abcdef", 6, 0, 2, 3)
+	require.True(t, ok)
+	assert.Equal(t, "cde", vis, "scrolling drops the leading runes")
+	assert.Equal(t, 0, screen)
+
+	// A run beginning at column 4 with the window at [0,3) is entirely off-screen.
+	_, _, ok = ui.WindowRun("xy", 2, 4, 0, 3)
+	assert.False(t, ok, "a run past the right edge is not visible")
+
+	// A run starting mid-window keeps its screen offset.
+	vis, screen, ok = ui.WindowRun("abc", 3, 1, 0, 5)
+	require.True(t, ok)
+	assert.Equal(t, "abc", vis)
+	assert.Equal(t, 1, screen, "a run at column 1 renders one column in")
+}
+
+func TestHorizontalScrollWindowsContent(t *testing.T) {
+	t.Parallel()
+
+	fyneMu.Lock()
+	defer fyneMu.Unlock()
+
+	assert.Equal(t, "abcdefghij", ui.DiffRowUnifiedVisibleText("abcdefghij", 0),
+		"at offset 0 the whole line shows")
+	assert.Equal(t, "defghij", ui.DiffRowUnifiedVisibleText("abcdefghij", 3),
+		"scrolling right by 3 columns drops the first three runes")
+}
+
 func TestSplitRowRendersIntralineEmphasis(t *testing.T) {
 	t.Parallel()
 
