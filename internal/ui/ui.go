@@ -7,6 +7,7 @@ package ui
 
 import (
 	"image/color"
+	"math"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -34,8 +35,13 @@ type palette struct {
 	border     color.NRGBA
 	addBg      color.NRGBA
 	addEmph    color.NRGBA
+	addHover   color.NRGBA
 	delBg      color.NRGBA
 	delEmph    color.NRGBA
+	delHover   color.NRGBA
+	// overlay is the neutral hover tint used for a hovered context line (one with
+	// no add/delete color); added/deleted lines hover in addHover/delHover instead.
+	overlay color.NRGBA
 	// dark reports whether the active theme is dark, used to pick light icon
 	// variants on light themes.
 	dark bool
@@ -53,10 +59,32 @@ func paletteFrom(src *theme.Palette) palette {
 		border:     src.Border,
 		addBg:      src.AddBg,
 		addEmph:    src.AddEmph,
+		addHover:   hoverTint(src.AddBg, src.AddEmph),
 		delBg:      src.DelBg,
 		delEmph:    src.DelEmph,
+		delHover:   hoverTint(src.DelBg, src.DelEmph),
+		overlay:    src.Overlay,
 		dark:       src.Dark,
 	}
+}
+
+// hoverMix is how far a changed line's hover tint sits between its resting
+// background and its stronger emphasis color — enough to brighten under the
+// pointer while staying in the line's own green or red.
+const hoverMix = 0.45
+
+// hoverTint derives a changed line's hover color by mixing its resting background
+// tint a fraction (hoverMix) toward its stronger emphasis color, so a hovered
+// added or deleted line brightens in its own green or red instead of washing out
+// to a neutral gray. The result is opaque.
+func hoverTint(bg, emph color.NRGBA) color.NRGBA {
+	lerp := func(a, b uint8) uint8 {
+		value := float64(a) + (float64(b)-float64(a))*hoverMix
+
+		return uint8(math.Round(math.Min(math.Max(value, 0), 255)))
+	}
+
+	return color.NRGBA{R: lerp(bg.R, emph.R), G: lerp(bg.G, emph.G), B: lerp(bg.B, emph.B), A: 0xff}
 }
 
 // newMonoText builds a monospace canvas text at the given size, weight, and

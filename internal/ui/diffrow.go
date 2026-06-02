@@ -5,10 +5,20 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/highlight"
+)
+
+// Hover column targets: hoverWhole tints a unified row edge to edge; hoverLeft /
+// hoverRight tint just one column of a split row, so hovering one side never
+// highlights the other.
+const (
+	hoverWhole = iota
+	hoverLeft
+	hoverRight
 )
 
 // rowKind distinguishes a hunk separator from an ordinary diff line so the
@@ -75,6 +85,12 @@ type diffRow struct {
 	data     row
 	hasData  bool
 	textSize float32
+	// hovered/hoverCol drive the kind-aware hover tint. diffRow is the Hoverable
+	// (not the enclosing list item), so the list's neutral gray hover never fires
+	// and the row can color the hover green/red — and, in split view, only the
+	// column under the pointer (hoverCol).
+	hovered  bool
+	hoverCol int
 }
 
 // rowMetrics holds the monospace measurements a row needs to position cells.
@@ -116,11 +132,58 @@ func (dr *diffRow) setRow(data *row, pal palette, metrics rowMetrics) {
 	dr.Refresh()
 }
 
+// Assert diffRow handles its own hover so the enclosing list item's neutral gray
+// highlight never activates (the innermost Hoverable under the pointer wins).
+var _ desktop.Hoverable = (*diffRow)(nil)
+
+// MouseIn starts the hover highlight, recording which column the pointer entered.
+func (dr *diffRow) MouseIn(event *desktop.MouseEvent) {
+	dr.hovered = true
+	dr.hoverCol = dr.hoverColumn(event.Position.X)
+	dr.Refresh()
+}
+
+// MouseMoved re-highlights only when the pointer crosses into the other split
+// column; a move within the same column (or any move on a unified row) is a no-op
+// so hovering does not repaint every frame.
+func (dr *diffRow) MouseMoved(event *desktop.MouseEvent) {
+	col := dr.hoverColumn(event.Position.X)
+	if dr.hovered && col == dr.hoverCol {
+		return
+	}
+	dr.hovered = true
+	dr.hoverCol = col
+	dr.Refresh()
+}
+
+// MouseOut clears the hover highlight.
+func (dr *diffRow) MouseOut() {
+	if !dr.hovered {
+		return
+	}
+	dr.hovered = false
+	dr.Refresh()
+}
+
+// hoverColumn maps a pointer X to the column it falls in: hoverWhole for unified
+// rows and separators, otherwise the left or right half of a split row.
+func (dr *diffRow) hoverColumn(x float32) int {
+	if dr.data.kind != rowSplit {
+		return hoverWhole
+	}
+	if x < dr.Size().Width/2 {
+		return hoverLeft
+	}
+
+	return hoverRight
+}
+
 // CreateRenderer wires the row's canvas objects into a renderer.
 func (dr *diffRow) CreateRenderer() fyne.WidgetRenderer {
 	rend := &diffRowRenderer{
 		row:        dr,
 		background: canvas.NewRectangle(color.Transparent),
+		hover:      canvas.NewRectangle(color.Transparent),
 		leftBg:     canvas.NewRectangle(color.Transparent),
 		rightBg:    canvas.NewRectangle(color.Transparent),
 		divider:    canvas.NewRectangle(color.Transparent),
@@ -157,18 +220,22 @@ func (dr *diffRow) newText(col color.Color, align fyne.TextAlign) *canvas.Text {
 type diffRowRenderer struct {
 	row        *diffRow
 	background *canvas.Rectangle
-	leftBg     *canvas.Rectangle
-	rightBg    *canvas.Rectangle
-	divider    *canvas.Rectangle
-	oldNum     *canvas.Text
-	newNum     *canvas.Text
-	sign       *canvas.Text
-	header     *canvas.Text
-	emphasis   []*canvas.Rectangle
-	texts      []*canvas.Text
-	liveEmph   int
-	liveTexts  int
-	width      float32
+	// hover is the kind-aware hover tint, painted above the cell backgrounds and
+	// below the emphasis/text so a hovered line brightens in its own color. In
+	// split mode it covers only the hovered column.
+	hover     *canvas.Rectangle
+	leftBg    *canvas.Rectangle
+	rightBg   *canvas.Rectangle
+	divider   *canvas.Rectangle
+	oldNum    *canvas.Text
+	newNum    *canvas.Text
+	sign      *canvas.Text
+	header    *canvas.Text
+	emphasis  []*canvas.Rectangle
+	texts     []*canvas.Text
+	liveEmph  int
+	liveTexts int
+	width     float32
 	// objs caches the Objects() slice. The render walk and every mouse hit-test
 	// call Objects(); rebuilding the slice only when the pooled object count
 	// changes avoids a per-walk allocation (the top render-path allocator).
@@ -258,6 +325,7 @@ func (r *diffRowRenderer) Refresh() {
 	default:
 		r.refreshLine()
 	}
+	r.applyHover()
 	r.hideSurplus()
 	canvas.Refresh(r.row)
 }
@@ -279,22 +347,23 @@ func (r *diffRowRenderer) Layout(size fyne.Size) {
 		r.rebuildSplit(size.Width)
 	case rowLine:
 	}
+	r.applyHover()
 }
 
 // Objects returns every drawable in paint order: backgrounds (full-width unified
-// plus the two split columns and their divider), intra-line emphasis, gutter/sign
-// chrome, then the syntax text runs on top.
+// plus the two split columns and their divider), the hover tint, intra-line
+// emphasis, gutter/sign chrome, then the syntax text runs on top.
 func (r *diffRowRenderer) Objects() []fyne.CanvasObject {
-	// 8 fixed cells (4 backgrounds/divider + 4 gutter/sign/header) plus the two
-	// pools. The pools only grow, so the cached slice is valid until the count
+	// 9 fixed cells (4 backgrounds/divider + hover + 4 gutter/sign/header) plus the
+	// two pools. The pools only grow, so the cached slice is valid until the count
 	// changes; rebuild only then.
-	want := 8 + len(r.emphasis) + len(r.texts)
+	want := 9 + len(r.emphasis) + len(r.texts)
 	if len(r.objs) == want {
 		return r.objs
 	}
 
 	r.objs = make([]fyne.CanvasObject, 0, want)
-	r.objs = append(r.objs, r.background, r.leftBg, r.rightBg, r.divider)
+	r.objs = append(r.objs, r.background, r.leftBg, r.rightBg, r.divider, r.hover)
 	for _, emph := range r.emphasis {
 		r.objs = append(r.objs, emph)
 	}
