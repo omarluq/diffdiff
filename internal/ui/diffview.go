@@ -10,12 +10,46 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	fynetheme "fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/omarluq/diffdiff/internal/diff"
 	"github.com/omarluq/diffdiff/internal/highlight"
 	"github.com/omarluq/diffdiff/internal/theme"
 )
+
+// tightListTheme delegates to the active app theme but reports zero padding, so a
+// ThemeOverride wrapping the diff list removes Fyne's inter-row gap. Without it
+// rows are spaced by SizeNamePadding, and that gap has no diffRow under it — a
+// scroll or hover there falls through to the list's vertical-only scroller, so
+// horizontal gestures (and the row's own handling) die between lines.
+type tightListTheme struct{}
+
+func currentFyneTheme() fyne.Theme {
+	if app := fyne.CurrentApp(); app != nil {
+		return app.Settings().Theme()
+	}
+
+	return fynetheme.DefaultTheme()
+}
+
+func (tightListTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return currentFyneTheme().Color(name, variant)
+}
+
+func (tightListTheme) Font(style fyne.TextStyle) fyne.Resource { return currentFyneTheme().Font(style) }
+
+func (tightListTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return currentFyneTheme().Icon(name)
+}
+
+func (tightListTheme) Size(name fyne.ThemeSizeName) float32 {
+	if name == fynetheme.SizeNamePadding {
+		return 0
+	}
+
+	return currentFyneTheme().Size(name)
+}
 
 // hbarThickness is the height reserved for the horizontal scrollbar strip under
 // the diff; it is only laid out when a line overflows the viewport.
@@ -150,8 +184,10 @@ func (v *DiffView) buildList() {
 	v.hbar.OnScrolled = v.onHScroll
 	v.hbar.Hide()
 
+	// Wrap the list in a zero-padding theme so rows tile with no inter-row gap;
+	// otherwise a hover/scroll landing in the gap between two rows hits no diffRow.
 	center := container.NewStack(
-		v.list,
+		container.NewThemeOverride(v.list, tightListTheme{}),
 		container.NewCenter(v.binary),
 		container.NewCenter(v.loading),
 	)
