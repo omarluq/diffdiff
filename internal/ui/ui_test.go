@@ -457,6 +457,15 @@ func TestSplitHoverHighlightsOnlyHoveredColumn(t *testing.T) {
 	assert.True(t, leftColored, "the left-column hover uses the left cell's kind color")
 }
 
+func TestSnapUpAlignsToDevicePixels(t *testing.T) {
+	t.Parallel()
+
+	assert.InDelta(t, 18.0, ui.SnapUp(17.3, 1), 0.001, "scale 1 rounds up to a whole logical pixel")
+	assert.InDelta(t, 17.5, ui.SnapUp(17.3, 2), 0.001, "scale 2 rounds up to a half logical (whole device) pixel")
+	assert.InDelta(t, 10.0, ui.SnapUp(10.0, 1), 0.001, "an already-whole height is unchanged")
+	assert.InDelta(t, 18.0, ui.SnapUp(17.3, 0), 0.001, "non-positive scale is treated as 1 (rounds up)")
+}
+
 func TestRuneSlice(t *testing.T) {
 	t.Parallel()
 
