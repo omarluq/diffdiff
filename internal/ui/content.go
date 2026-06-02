@@ -213,37 +213,49 @@ func (c *Content) showOptionsMenu(anchor fyne.CanvasObject, options []string, ac
 	}
 
 	var popUp *widget.PopUp
-	activeIndex := -1
-	items := make([]fyne.CanvasObject, 0, len(options))
-	for index, option := range options {
-		choice := option
-		button := widget.NewButton(choice, func() {
-			popUp.Hide()
-			onPick(choice)
-		})
-		button.Alignment = widget.ButtonAlignLeading
-		button.Importance = widget.LowImportance
-		if choice == active {
-			activeIndex = index
-			button.Icon = fynetheme.ConfirmIcon()
-		}
-		items = append(items, button)
-	}
 
-	box := container.NewVBox(items...)
-	full := box.MinSize().Height
-	viewport := full
-	if len(options) > pickerVisibleItems {
-		viewport = full * float32(pickerVisibleItems) / float32(len(options))
+	// rebuild repopulates the option buttons for the current filter query. The
+	// active option carries a leading check mark; choosing one dismisses the popup.
+	box := container.NewVBox()
+	rebuild := func(query string) {
+		box.RemoveAll()
+		for _, option := range fuzzyOptions(options, query) {
+			choice := option
+			button := widget.NewButton(choice, func() {
+				popUp.Hide()
+				onPick(choice)
+			})
+			button.Alignment = widget.ButtonAlignLeading
+			button.Importance = widget.LowImportance
+			if choice == active {
+				button.Icon = fynetheme.ConfirmIcon()
+			}
+			box.Add(button)
+		}
+		box.Refresh()
 	}
+	rebuild("")
+
+	// Fixed viewport: up to pickerVisibleItems rows of the full list, so typing in
+	// the filter scrolls within a stable popup rather than resizing it.
+	rowHeight := float32(0)
+	if len(options) > 0 {
+		rowHeight = box.MinSize().Height / float32(len(options))
+	}
+	viewport := rowHeight * float32(min(len(options), pickerVisibleItems))
 
 	scroll := container.NewVScroll(box)
 	scroll.SetMinSize(fyne.NewSize(pickerWidth, viewport))
 
-	popUp = widget.NewPopUp(scroll, canvas)
+	filter := widget.NewEntry()
+	filter.SetPlaceHolder("Filter…")
+	filter.OnChanged = rebuild
+
+	popUp = widget.NewPopUp(container.NewBorder(filter, nil, nil, nil, scroll), canvas)
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
 	popUp.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+anchor.Size().Height))
-	scrollToActive(scroll, box, len(options), activeIndex, viewport)
+	scrollToActive(scroll, box, len(options), indexOf(options, active), viewport)
+	canvas.Focus(filter)
 }
 
 // scrollToActive centers the active option in the picker's viewport so its
