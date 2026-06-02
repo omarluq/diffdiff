@@ -21,13 +21,26 @@ var defaultDarkBg = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x1E, A: 255}
 // namespace-keyword color to anchor the accent on.
 var fallbackAccent = color.NRGBA{R: 88, G: 166, B: 255, A: 255}
 
-// derivePalette builds a coherent UI/diff palette from a chroma style.
+// Minimum WCAG 2.x contrast ratios enforced against the background so every
+// derived theme stays legible regardless of the source style: body text at the
+// AA threshold (4.5:1), and secondary text and the accent at the 3:1 large-text /
+// UI-component threshold. Syntax token colors come straight from the chroma style
+// (the theme's authentic palette) and are not adjusted here.
+const (
+	minTextContrast   = 4.5
+	minMutedContrast  = 3.0
+	minAccentContrast = 3.0
+)
+
+// derivePalette builds a coherent UI/diff palette from a chroma style. The
+// foreground, muted, and accent colors are nudged toward the background's
+// opposite extreme as needed to meet the contrast minimums above.
 func derivePalette(name, styleName string, style *chroma.Style) Palette {
 	background := backgroundColor(style)
 	dark := luminance(background) < 0.5
-	foreground := foregroundColor(style, dark)
-	muted := mutedColor(style, foreground, background)
-	accent := accentColor(style)
+	foreground := ensureContrast(foregroundColor(style, dark), background, minTextContrast)
+	muted := ensureContrast(mutedColor(style, foreground, background), background, minMutedContrast)
+	accent := ensureContrast(accentColor(style), background, minAccentContrast)
 
 	amount := 0.18
 	if dark {
@@ -109,9 +122,67 @@ func styleText(entry chroma.StyleEntry) chroma.Colour { //nolint:misspell // chr
 }
 
 // luminance returns relative perceptual brightness in [0,1] using Rec. 709
-// coefficients.
+// coefficients. It is a cheap approximation used only for the dark/light
+// decision; accessibility contrast uses the gamma-correct relativeLuminance.
 func luminance(c color.NRGBA) float64 {
 	return (0.2126*float64(c.R) + 0.7152*float64(c.G) + 0.0722*float64(c.B)) / 255.0
+}
+
+// ensureContrast nudges fg toward the background's opposite extreme (white on a
+// dark background, black on a light one) in small steps until it meets minRatio
+// against bg, preserving the original hue as far as the requirement allows. A
+// color already meeting the ratio is returned unchanged.
+func ensureContrast(foreground, background color.NRGBA, minRatio float64) color.NRGBA {
+	if contrastRatio(foreground, background) >= minRatio {
+		return foreground
+	}
+
+	// Push toward whichever extreme yields the most contrast against this
+	// background (matters for medium backgrounds, where one extreme can fall
+	// short). If even the extreme cannot reach minRatio, return the best it can.
+	white := color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 255}
+	black := color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 255}
+	target := white
+	if contrastRatio(black, background) > contrastRatio(white, background) {
+		target = black
+	}
+
+	const steps = 24
+	for step := 1; step <= steps; step++ {
+		candidate := blend(foreground, target, float64(step)/steps)
+		if contrastRatio(candidate, background) >= minRatio {
+			return candidate
+		}
+	}
+
+	return target
+}
+
+// contrastRatio is the WCAG 2.x contrast ratio between two colors, in [1, 21].
+func contrastRatio(first, second color.NRGBA) float64 {
+	lighter, darker := relativeLuminance(first), relativeLuminance(second)
+	if lighter < darker {
+		lighter, darker = darker, lighter
+	}
+
+	return (lighter + 0.05) / (darker + 0.05)
+}
+
+// relativeLuminance is the WCAG relative luminance of a color in [0,1], applying
+// the sRGB gamma expansion per channel. It is the perceptually accurate measure
+// used for contrast (unlike luminance, the linear Rec. 709 average).
+func relativeLuminance(c color.NRGBA) float64 {
+	return 0.2126*linearizeChannel(c.R) + 0.7152*linearizeChannel(c.G) + 0.0722*linearizeChannel(c.B)
+}
+
+// linearizeChannel converts an sRGB 8-bit channel to linear light in [0,1].
+func linearizeChannel(channel uint8) float64 {
+	srgb := float64(channel) / 255.0
+	if srgb <= 0.03928 {
+		return srgb / 12.92
+	}
+
+	return math.Pow((srgb+0.055)/1.055, 2.4)
 }
 
 // blend linearly interpolates each channel from first toward second by ratio,

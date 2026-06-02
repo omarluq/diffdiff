@@ -11,13 +11,25 @@ import (
 	"github.com/omarluq/diffdiff/internal/theme"
 )
 
-func TestNewRegistryLoadsAllCuratedThemes(t *testing.T) {
+func TestNewRegistryLoadsEveryStyle(t *testing.T) {
 	t.Parallel()
 
 	reg := theme.NewRegistry()
 	require.NotNil(t, reg)
 
-	assert.Len(t, reg.Names(), 20)
+	// Every chroma style becomes a theme (none of the bundled styles is the
+	// Fallback and the display names do not collide), so the counts match.
+	assert.Len(t, reg.Names(), len(styles.Names()))
+
+	// Spot-check that the popular themes are present under their nice names.
+	for _, name := range []string{
+		"One Dark", "Dracula", "Nord", "GitHub Dark", "GitHub Light",
+		"Monokai", "Gruvbox", "Catppuccin Mocha", "Tokyo Night", "Rosé Pine",
+		"Solarized Dark", "Solarized Light", "Kanagawa Wave",
+	} {
+		_, ok := reg.Get(name)
+		assert.Truef(t, ok, "expected theme %q to be present", name)
+	}
 }
 
 func TestRegistryNamesSortedAndComplete(t *testing.T) {
@@ -26,13 +38,36 @@ func TestRegistryNamesSortedAndComplete(t *testing.T) {
 	reg := theme.NewRegistry()
 	names := reg.Names()
 
-	require.Len(t, names, 20)
+	require.NotEmpty(t, names)
 	assert.True(t, sort.StringsAreSorted(names), "names must be sorted")
 
 	for _, name := range names {
 		th, ok := reg.Get(name)
 		require.Truef(t, ok, "Get(%q) should succeed", name)
 		assert.Equal(t, name, th.Name())
+	}
+}
+
+func TestEveryThemeMeetsContrast(t *testing.T) {
+	t.Parallel()
+
+	reg := theme.NewRegistry()
+
+	// A tiny tolerance absorbs the rounding in the per-channel blend so a color
+	// the derivation just pushed to the threshold isn't reported as a hair short.
+	const tol = 0.02
+
+	for _, name := range reg.Names() {
+		th, ok := reg.Get(name)
+		require.True(t, ok)
+		pal := th.Palette()
+
+		assert.GreaterOrEqualf(t, theme.ContrastRatio(pal.Foreground, pal.Background), theme.MinTextContrast-tol,
+			"theme %q: foreground/background below AA text contrast", name)
+		assert.GreaterOrEqualf(t, theme.ContrastRatio(pal.Muted, pal.Background), theme.MinMutedContrast-tol,
+			"theme %q: muted/background below readable contrast", name)
+		assert.GreaterOrEqualf(t, theme.ContrastRatio(pal.Accent, pal.Background), theme.MinAccentContrast-tol,
+			"theme %q: accent/background below UI contrast", name)
 	}
 }
 
@@ -48,7 +83,7 @@ func TestRegistryNamesReturnsCopy(t *testing.T) {
 	assert.NotEqual(t, "mutated", reg.Names()[0], "Names must not expose internal slice")
 }
 
-func TestEveryCuratedStyleResolves(t *testing.T) {
+func TestEveryThemeStyleResolves(t *testing.T) {
 	t.Parallel()
 
 	reg := theme.NewRegistry()
@@ -59,10 +94,10 @@ func TestEveryCuratedStyleResolves(t *testing.T) {
 
 		style := themeEntry.ChromaStyle()
 		require.NotNil(t, style)
-		// styles.Get returns the shared Fallback for unknown names; a curated
-		// theme must derive from a real, distinct style.
-		assert.NotSame(t, styles.Fallback, style, "theme %q resolved to fallback style", name)
 
+		// The stored style name must round-trip back to the same style object.
+		// (chroma's Fallback style is registered as "swapoff", so we deliberately
+		// do not exclude it — it is a real, selectable theme.)
 		resolved := styles.Get(themeEntry.Palette().StyleName)
 		assert.Same(t, style, resolved, "theme %q style mismatch", name)
 	}
