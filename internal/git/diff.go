@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/samber/lo"
+	"github.com/samber/mo"
 	"github.com/samber/oops"
 	"golang.org/x/sync/singleflight"
 
@@ -30,7 +31,7 @@ const binarySniffLen = 8000
 // demand. LoadFile is safe to call concurrently from multiple goroutines.
 type WorkingSet struct {
 	repo    *Repository
-	head    *object.Commit
+	head    mo.Option[*object.Commit]
 	entries map[string]*git.FileStatus
 	flight  singleflight.Group
 	mu      sync.Mutex
@@ -201,23 +202,23 @@ func classifyFromStatus(fs *git.FileStatus) diff.Status {
 	}
 }
 
-// headCommit returns the commit at HEAD, or nil if the repository has no
+// headCommit returns the commit at HEAD, or None if the repository has no
 // commits yet (an unborn HEAD), in which case everything is treated as added.
-func (r *Repository) headCommit() (*object.Commit, error) {
+func (r *Repository) headCommit() (mo.Option[*object.Commit], error) {
 	ref, err := r.repo.Head()
 	if err != nil {
 		if errors.Is(err, plumbing.ErrReferenceNotFound) {
-			return nil, nil //nolint:nilnil // nil commit signals an unborn HEAD
+			return mo.None[*object.Commit](), nil // unborn HEAD: no commit yet
 		}
-		return nil, oops.In("git").Code("head").Wrapf(err, "resolve HEAD")
+		return mo.None[*object.Commit](), oops.In("git").Code("head").Wrapf(err, "resolve HEAD")
 	}
 
 	commit, err := r.repo.CommitObject(ref.Hash())
 	if err != nil {
-		return nil, oops.In("git").Code("head_commit").Wrapf(err, "load HEAD commit")
+		return mo.None[*object.Commit](), oops.In("git").Code("head_commit").Wrapf(err, "load HEAD commit")
 	}
 
-	return commit, nil
+	return mo.Some(commit), nil
 }
 
 // materialize fills in a file's diff content in place: it reads the old (HEAD)
@@ -226,7 +227,7 @@ func (r *Repository) headCommit() (*object.Commit, error) {
 // file is recorded with no hunks. Unlike the old eager path it never drops a
 // "no renderable change" file — the row already exists, so it stays as a loaded
 // zero-count entry (WorkingDiff applies the drop for its eager callers).
-func (r *Repository) materialize(head *object.Commit, file *diff.File, fs *git.FileStatus) error {
+func (r *Repository) materialize(head mo.Option[*object.Commit], file *diff.File, fs *git.FileStatus) error {
 	oldPath := resolveOldPath(fs, file.Path)
 
 	oldContent, oldBinary, oldExists, err := readHeadFile(head, oldPath)
@@ -294,13 +295,15 @@ func classify(fs *git.FileStatus, oldExists, newExists, renamed bool) diff.Statu
 }
 
 // readHeadFile reads a blob from the HEAD commit. It reports existence and
-// whether the blob is binary; binary blobs return empty content.
-func readHeadFile(head *object.Commit, path string) (content string, binary, exists bool, err error) {
-	if head == nil {
+// whether the blob is binary; binary blobs return empty content. A None head
+// (unborn HEAD) means every path is absent on the old side.
+func readHeadFile(head mo.Option[*object.Commit], path string) (content string, binary, exists bool, err error) {
+	commit, ok := head.Get()
+	if !ok {
 		return "", false, false, nil
 	}
 
-	f, err := head.File(path)
+	f, err := commit.File(path)
 	if err != nil {
 		if errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
 			return "", false, false, nil

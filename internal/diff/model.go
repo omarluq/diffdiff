@@ -7,6 +7,8 @@
 // pins the original file contents in memory.
 package diff
 
+import "github.com/samber/lo"
+
 // LineKind classifies a single diff line.
 type LineKind uint8
 
@@ -142,9 +144,5 @@ func (f *File) HasCounts() bool {
 // TotalLines returns the number of rendered diff lines across all hunks. It is
 // the basis for virtualized layout height estimation.
 func (f *File) TotalLines() int {
-	n := 0
-	for i := range f.Hunks {
-		n += len(f.Hunks[i].Lines)
-	}
-	return n
+	return lo.SumBy(f.Hunks, func(h Hunk) int { return len(h.Lines) })
 }
