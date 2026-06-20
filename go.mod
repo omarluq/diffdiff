@@ -11,7 +11,7 @@ require (
 	github.com/go-git/go-billy/v5 v5.9.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/rs/zerolog v1.35.1
-	github.com/sahilm/fuzzy v0.1.2
+	github.com/sahilm/fuzzy v0.1.3
 	github.com/samber/do/v2 v2.0.0
 	github.com/samber/hot v0.13.0
 	github.com/samber/lo v1.53.0
